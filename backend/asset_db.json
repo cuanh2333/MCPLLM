@@ -1,0 +1,49 @@
+{
+  "assets": {
+    "192.168.1.10": {
+      "type": "SERVER",
+      "label": "PROTECTED_ASSET",
+      "description": "Máy chủ - Tài sản cần bảo vệ",
+      "severity_if_target": "CRITICAL",
+      "severity_if_source": "MEDIUM"
+    },
+    "192.168.96.144": {
+      "type": "SERVER",
+      "label": "PROTECTED_ASSET",
+      "description": "Máy chủ - Tài sản cần bảo vệ",
+      "severity_if_target": "CRITICAL",
+      "severity_if_source": "MEDIUM"
+    },
+    "192.168.1.100": {
+      "type": "PENTEST",
+      "label": "AUTHORIZED_ATTACKER",
+      "description": "IP Pentest/Nghiệp vụ - Tấn công được phép (Authorized Testing)",
+      "note": "Đây là IP được ủy quyền để thực hiện pentest. Vẫn cần giám sát nhưng không phải mối đe dọa thực sự.",
+      "severity_if_target": "MEDIUM",
+      "severity_if_source": "MEDIUM"
+    },
+    "192.168.96.1": {
+      "type": "PENTEST",
+      "label": "AUTHORIZED_ATTACKER",
+      "description": "IP Pentest/Nghiệp vụ - Tấn công được phép (Authorized Testing)",
+      "note": "Đây là IP được ủy quyền để thực hiện pentest. Vẫn cần giám sát nhưng không phải mối đe dọa thực sự.",
+      "severity_if_target": "MEDIUM",
+      "severity_if_source": "MEDIUM"
+    },
+    "192.168.96.131": {
+      "type": "COLLECTOR",
+      "label": "LOG_COLLECTOR",
+      "description": "Thu thập log từ web servers",
+      "note": "IP này là log collector, không phải attacker.",
+      "severity_if_target": "LOW",
+      "severity_if_source": "LOW"
+    }
+  },
+  "domains": {
+    "dvwa": {
+      "type": "TEST_DOMAIN",
+      "description": "Domain mô phỏng tấn công",
+      "severity_if_target": "MEDIUM"
+    }
+  }
+}

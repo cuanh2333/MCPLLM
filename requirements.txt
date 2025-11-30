@@ -1,0 +1,58 @@
+# V1 Log Analyzer Dependencies
+
+# Web Framework
+fastapi
+uvicorn[standard]
+
+# LLM Integration
+langchain-groq
+langchain-core>=0.1.0
+langchain>=0.1.0
+
+# V4: LangGraph Integration
+langgraph>=0.0.40
+
+# MCP Integration
+mcp
+
+# Splunk Integration (V2)
+splunk-sdk
+
+# Data Processing
+pandas
+
+# PDF Generation (V2.2)
+reportlab
+PyPDF2
+pdfplumber
+markdown2
+pillow
+# Configuration
+python-dotenv
+pydantic
+pydantic-settings
+
+# Additional dependencies from existing project
+pydantic-core
+langchain-mcp-adapters
+requests
+langchain_community
+chromadb
+langchain-chroma
+sentence-transformers
+langchain_huggingface
+langchain_google_genai
+beautifulsoup4
+html5lib
+lxml
+playwright
+selenium
+jupyter
+ipykernel
+notebook
+chardet
+plotly
+rank-bm25
+flashrank
+numpy
+streamlit
