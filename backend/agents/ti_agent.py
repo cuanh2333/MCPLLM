@@ -11,10 +11,9 @@ from typing import Optional
 
 from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
 
 from backend.models import TISummary, Event, EventLabel
+from backend.services.unified_mcp_client import get_unified_client
 
 
 logger = logging.getLogger(__name__)
@@ -28,17 +27,17 @@ class TIAgent:
     then uses LLM to analyze and summarize the findings.
     """
     
-    def __init__(self, llm: ChatGroq, mcp_server_path: str):
+    def __init__(self, llm: ChatGroq, mcp_server_path: str = None):
         """
         Initialize TIAgent.
         
         Args:
             llm: ChatGroq LLM instance
-            mcp_server_path: Path to MCP server script
+            mcp_server_path: Path to MCP server script (deprecated, using unified client)
         """
         self.llm = llm
-        self.mcp_server_path = mcp_server_path
-        logger.info("TIAgent initialized")
+        self.mcp_client = get_unified_client()
+        logger.info("TIAgent initialized with unified MCP client")
     
     async def analyze(
         self,
@@ -202,53 +201,35 @@ class TIAgent:
         logger.info(f"Fetching TI data for {len(ips_to_fetch)} new IPs (cached: {len(ti_data)})")
         
         try:
-            import os
-            server_params = StdioServerParameters(
-                command="python",
-                args=[self.mcp_server_path],
-                env=dict(os.environ)
-            )
-            
-            async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    await session.initialize()
-                    logger.info("MCP session initialized for TI")
-                    
-                    # Check each IP that's not in cache
-                    for ip in ips_to_fetch:
-                        logger.info(f"Checking IP: {ip}")
-                        
-                        ip_data = {
-                            "ip": ip,
-                            "abuseipdb": None,
-                            "virustotal": None
-                        }
-                        
-                        # Try AbuseIPDB
-                        try:
-                            result = await session.call_tool(
-                                "abuseipdb_check",
-                                arguments={"ip_address": ip}
-                            )
-                            if result.content:
-                                ip_data["abuseipdb"] = result.content[0].text
-                        except Exception as e:
-                            logger.warning(f"AbuseIPDB check failed for {ip}: {e}")
-                        
-                        # Try VirusTotal
-                        try:
-                            result = await session.call_tool(
-                                "virustotal_ip",
-                                arguments={"ip_address": ip}
-                            )
-                            if result.content:
-                                ip_data["virustotal"] = result.content[0].text
-                        except Exception as e:
-                            logger.warning(f"VirusTotal check failed for {ip}: {e}")
-                        
-                        # Cache the result
-                        ti_cache.set(ip, ip_data)
-                        ti_data.append(ip_data)
+            # Check each IP that's not in cache using unified MCP client
+            for ip in ips_to_fetch:
+                logger.info(f"Checking IP: {ip}")
+                
+                ip_data = {
+                    "ip": ip,
+                    "abuseipdb": None,
+                    "virustotal": None
+                }
+                
+                # Try AbuseIPDB
+                try:
+                    abuseipdb_result = await self.mcp_client.abuseipdb_check(ip)
+                    if abuseipdb_result:
+                        ip_data["abuseipdb"] = str(abuseipdb_result)
+                except Exception as e:
+                    logger.warning(f"AbuseIPDB check failed for {ip}: {e}")
+                
+                # Try VirusTotal
+                try:
+                    vt_result = await self.mcp_client.virustotal_ip(ip)
+                    if vt_result:
+                        ip_data["virustotal"] = str(vt_result)
+                except Exception as e:
+                    logger.warning(f"VirusTotal check failed for {ip}: {e}")
+                
+                # Cache the result
+                ti_cache.set(ip, ip_data)
+                ti_data.append(ip_data)
         
         except Exception as e:
             logger.error(f"Failed to fetch TI data: {e}")

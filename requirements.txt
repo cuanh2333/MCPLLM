@@ -56,3 +56,4 @@ rank-bm25
 flashrank
 numpy
 streamlit
+python-dotenv

@@ -1,9 +1,9 @@
 """
-MCP Server package for V1 Log Analyzer.
+MCP Server package for MCPLLM.
 
-This package provides the MCP server for log retrieval from various sources.
+This package provides the unified MCP server for log retrieval and RAG functionality.
 """
 
-from mcp_server.log_server import mcp
+from mcp_server.unified_server import app
 
-__all__ = ['mcp']
+__all__ = ['app']

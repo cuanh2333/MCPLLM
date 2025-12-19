@@ -28,7 +28,7 @@ const CronMonitoring = () => {
 
   const fetchStatus = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/cron/status');
+      const response = await fetch('http://127.0.0.1:8888/cron/status');
       const data = await response.json();
       setStatus(data);
       setIsRunning(data.is_running);
@@ -39,7 +39,7 @@ const CronMonitoring = () => {
 
   const fetchStatistics = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/statistics');
+      const response = await fetch('http://127.0.0.1:8888/statistics');
       const data = await response.json();
       setStatistics(data);
       setLastUpdate(new Date());
@@ -53,7 +53,7 @@ const CronMonitoring = () => {
     setError(null);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/cron/start', {
+      const response = await fetch('http://127.0.0.1:8888/cron/start', {
         method: 'POST',
       });
 
@@ -79,7 +79,7 @@ const CronMonitoring = () => {
     setError(null);
 
     try {
-      const response = await fetch('http://127.0.0.1:8000/cron/stop', {
+      const response = await fetch('http://127.0.0.1:8888/cron/stop', {
         method: 'POST',
       });
 
@@ -113,7 +113,7 @@ const CronMonitoring = () => {
             <span className="title-icon">⏰</span>
             Automated Monitoring
           </h1>
-          <p className="subtitle">Continuous threat detection with sliding window analysis</p>
+          <p className="subtitle">Continuous threat detection with real-time monitoring</p>
         </div>
 
         <div className="cron-status-card">
@@ -296,7 +296,7 @@ const CronMonitoring = () => {
             <h3>ℹ️ How It Works</h3>
             <ul>
               <li>🔄 Analyzes logs every 5 minutes automatically</li>
-              <li>⏱️ Uses sliding window: 7 hours ago (5-minute window)</li>
+              <li>⏱️ Monitors last 5 minutes in real-time</li>
               <li>📱 Sends Telegram alerts only when attacks detected</li>
               <li>📊 Statistics update in real-time</li>
               <li>🛑 Click "Stop" to pause monitoring</li>

@@ -11,6 +11,7 @@ from langchain_groq import ChatGroq
 from langchain_core.messages import HumanMessage
 
 from backend.models import RecommendSummary, FindingsSummary, TISummary
+from backend.agents.queryrag_agent import get_queryrag_agent
 
 
 logger = logging.getLogger(__name__)
@@ -40,23 +41,27 @@ class RecommendAgent:
         ti_summary: TISummary
     ) -> RecommendSummary:
         """
-        Generate security recommendations.
+        Generate security recommendations using RAG knowledge base.
         
         Args:
             findings_summary: Analysis findings summary
             ti_summary: Threat intelligence summary
         
         Returns:
-            RecommendSummary with actionable recommendations
+            RecommendSummary with actionable recommendations from RAG
         """
-        logger.info("Generating recommendations")
+        logger.info("Generating recommendations using RAG knowledge base")
         
-        prompt = self._create_prompt(findings_summary, ti_summary)
+        # Query RAG for incident response playbook
+        rag_recommendations = await self._query_rag_for_recommendations(findings_summary, ti_summary)
+        
+        prompt = self._create_prompt(findings_summary, ti_summary, rag_recommendations)
         
         try:
             response = await self.llm.ainvoke([HumanMessage(content=prompt)])
             recommend_summary = self._parse_response(response.content)
-            logger.info("Recommendations generated successfully")
+            
+            logger.info("Recommendations generated successfully with RAG knowledge")
             return recommend_summary
         
         except Exception as e:
@@ -65,24 +70,109 @@ class RecommendAgent:
             return RecommendSummary(
                 severity_overall=findings_summary['severity_level'],
                 immediate_actions=[
+                    "Chặn các IP tấn công tại firewall",
                     "Rà soát các sự kiện tấn công trong file CSV đã xuất",
                     "Giám sát các hệ thống bị ảnh hưởng để phát hiện hoạt động đáng ngờ"
                 ],
                 short_term_actions=[
                     "Cập nhật WAF rules để chặn các pattern tấn công đã phát hiện",
-                    "Vá lỗi các hệ thống có lỗ hổng"
+                    "Vá lỗi các hệ thống có lỗ hổng",
+                    "Thực hiện incident response theo playbook"
                 ],
                 long_term_actions=[
                     "Triển khai chương trình đào tạo nhận thức bảo mật",
-                    "Rà soát và cập nhật các chính sách bảo mật"
+                    "Rà soát và cập nhật các chính sách bảo mật",
+                    "Nâng cấp hệ thống monitoring và detection"
                 ],
                 notes=f"Không thể tạo khuyến nghị tự động: {str(e)}"
             )
     
-    def _create_prompt(
+    async def _query_rag_for_recommendations(
         self,
         findings_summary: FindingsSummary,
         ti_summary: TISummary
+    ) -> str:
+        """
+        Query RAG knowledge base for incident response recommendations.
+        Query each attack type separately for better RAG understanding.
+        
+        Args:
+            findings_summary: Analysis findings summary
+            ti_summary: Threat intelligence summary
+        
+        Returns:
+            RAG recommendations text (combined from multiple queries)
+        """
+        try:
+            attack_breakdown = findings_summary.get('attack_breakdown', [])
+            severity = findings_summary.get('severity_level', 'medium')
+            
+            if not attack_breakdown:
+                # No specific attacks, use general query
+                query = f"General incident response playbook for {severity} severity security incidents. IP blocking and mitigation steps."
+                logger.info(f"Querying RAG (general): {query}")
+                
+                queryrag_agent = get_queryrag_agent()
+                rag_result = await queryrag_agent.query_knowledge(
+                    user_query=query,
+                    category="incident_response"
+                )
+                
+                if rag_result and rag_result.get('answer'):
+                    return rag_result['answer']
+                else:
+                    return "Không có khuyến nghị từ knowledge base"
+            
+            # Query each attack type separately for better RAG understanding
+            all_recommendations = []
+            queryrag_agent = get_queryrag_agent()
+            
+            for attack_info in attack_breakdown:
+                attack_type = attack_info['attack_type']
+                count = attack_info['count']
+                percentage = attack_info['percentage']
+                
+                # Create focused query for single attack type
+                query = f"How to respond to {attack_type} attack? Incident response steps, IP blocking, WAF rules, and mitigation for {attack_type}."
+                
+                logger.info(f"Querying RAG for {attack_type}: {query}")
+                
+                try:
+                    rag_result = await queryrag_agent.query_knowledge(
+                        user_query=query,
+                        category="incident_response"
+                    )
+                    
+                    if rag_result and rag_result.get('answer'):
+                        # Add context about this specific attack
+                        recommendation = f"\n=== {attack_type.upper()} ATTACK ({count} events, {percentage:.1f}%) ===\n"
+                        recommendation += rag_result['answer']
+                        all_recommendations.append(recommendation)
+                        logger.info(f"RAG returned recommendations for {attack_type}")
+                    else:
+                        logger.warning(f"RAG returned no recommendations for {attack_type}")
+                        
+                except Exception as e:
+                    logger.error(f"Failed to query RAG for {attack_type}: {e}")
+                    continue
+            
+            if all_recommendations:
+                combined_recommendations = "\n\n".join(all_recommendations)
+                logger.info(f"Combined recommendations from {len(all_recommendations)} attack types")
+                return combined_recommendations
+            else:
+                logger.warning("No RAG recommendations returned for any attack type")
+                return "Không có khuyến nghị từ knowledge base"
+                
+        except Exception as e:
+            logger.error(f"Failed to query RAG for recommendations: {e}")
+            return "Lỗi khi truy vấn knowledge base"
+    
+    def _create_prompt(
+        self,
+        findings_summary: FindingsSummary,
+        ti_summary: TISummary,
+        rag_recommendations: str
     ) -> str:
         """Create recommendation prompt for LLM in Vietnamese."""
         prompt = """Bạn là chuyên gia ứng phó sự cố bảo mật. Dựa trên phân tích tấn công và threat intelligence, hãy đưa ra các khuyến nghị bảo mật CỤ THỂ, THỰC TẾ BẰNG TIẾNG VIỆT.
@@ -130,6 +220,9 @@ TÓM TẮT PHÂN TÍCH:
                 prompt += f"- Số IOC Rủi Ro Cao: {len(ti_summary['ti_overall'].get('high_risk_iocs', []))}\n"
         else:
             prompt += "\n\nTHREAT INTELLIGENCE: Không có dữ liệu\n"
+        
+        # Add RAG recommendations
+        prompt += f"\n\nKHUYẾN NGHỊ TỪ KNOWLEDGE BASE:\n{rag_recommendations}\n"
         
         # Asset context nếu có
         if findings_summary.get('asset_context'):
@@ -233,3 +326,5 @@ Tạo khuyến nghị BẰNG TIẾNG VIỆT ngay bây giờ:
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse recommendation response: {e}")
             raise ValueError(f"Invalid JSON response: {e}")
+    
+

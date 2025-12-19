@@ -1,5 +1,5 @@
 """
-Run both frontend and backend servers
+Run full stack: MCP Server + Backend + Frontend
 """
 import subprocess
 import sys
@@ -7,13 +7,20 @@ import time
 import os
 from pathlib import Path
 
+def run_mcp_server():
+    """Start Unified MCP Server"""
+    print("🚀 Starting Unified MCP Server...")
+    mcp_process = subprocess.Popen(
+        [sys.executable, "mcp_server/unified_server.py"],
+        text=True
+    )
+    return mcp_process
+
 def run_backend():
     """Start FastAPI backend"""
     print("🚀 Starting backend server...")
     backend_process = subprocess.Popen(
         [sys.executable, "run_backend.py"],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
         text=True
     )
     return backend_process
@@ -31,8 +38,6 @@ def run_frontend():
     frontend_process = subprocess.Popen(
         ["npm", "run", "dev"],
         cwd=frontend_dir,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
         text=True,
         shell=True
     )
@@ -40,34 +45,57 @@ def run_frontend():
 
 def main():
     print("=" * 60)
-    print("🔥 Security Analysis Chat - Full Stack")
+    print("🔥 MCPLLM - Full Stack Local Development")
     print("=" * 60)
     
-    # Start backend
-    backend = run_backend()
-    time.sleep(3)  # Wait for backend to start
-    
-    # Start frontend
-    frontend = run_frontend()
-    time.sleep(2)
-    
-    print("\n" + "=" * 60)
-    print("✅ Servers started successfully!")
-    print("=" * 60)
-    print("📡 Backend API: http://localhost:8000")
-    print("🌐 Frontend UI: http://localhost:3000")
-    print("📚 API Docs: http://localhost:8000/docs")
-    print("=" * 60)
-    print("\n⌨️  Press Ctrl+C to stop all servers\n")
+    processes = []
     
     try:
-        # Keep running and show logs
+        # Start MCP server first
+        mcp_server = run_mcp_server()
+        processes.append(("MCP Server", mcp_server))
+        time.sleep(3)  # Wait for MCP server to start
+        
+        # Start backend
+        backend = run_backend()
+        processes.append(("Backend", backend))
+        time.sleep(3)  # Wait for backend to start
+        
+        # Start frontend
+        frontend = run_frontend()
+        processes.append(("Frontend", frontend))
+        time.sleep(3)
+        
+        print("\n" + "=" * 60)
+        print("✅ All servers started successfully!")
+        print("=" * 60)
+        print("🔧 Unified MCP Server: http://localhost:8001")
+        print("📡 Backend API: http://localhost:8888")
+        print("🌐 Frontend UI: http://localhost:3000")
+        print("📚 API Docs: http://localhost:8888/docs")
+        print("🩺 MCP Health: http://localhost:8001/health")
+        print("=" * 60)
+        print("\n⌨️  Press Ctrl+C to stop all servers\n")
+        
+        # Keep running
         while True:
             time.sleep(1)
+            
     except KeyboardInterrupt:
-        print("\n\n🛑 Stopping servers...")
-        backend.terminate()
-        frontend.terminate()
+        print("\n\n🛑 Stopping all servers...")
+        for name, process in processes:
+            print(f"   Stopping {name}...")
+            process.terminate()
+        
+        # Wait a bit for graceful shutdown
+        time.sleep(2)
+        
+        # Force kill if still running
+        for name, process in processes:
+            if process.poll() is None:
+                print(f"   Force killing {name}...")
+                process.kill()
+        
         print("✅ All servers stopped")
 
 if __name__ == "__main__":

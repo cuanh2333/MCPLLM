@@ -42,8 +42,8 @@ class Settings(BaseSettings):
         google_api_key: Google API key for additional services
     """
     
-    # LLM Configuration (required)
-    groq_api_key: str
+    # LLM Configuration (required for production, optional for development)
+    groq_api_key: Optional[str] = None
     llm_model: str = "llama-3.3-70b-versatile"
     llm_temperature: float = 0.0
     llm_provider: str = "groq"  # "groq" or "google"

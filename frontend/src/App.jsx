@@ -250,7 +250,7 @@ function App() {
 
     const realtimeMessage = {
       role: 'user',
-      content: '⚡ Chạy phân tích realtime (7 giờ trước)',
+      content: '⚡ Chạy phân tích realtime (5 phút trước)',
       timestamp: new Date()
     }
 
@@ -260,7 +260,7 @@ function App() {
     try {
       // Gọi API với query đặc biệt cho realtime
       const response = await axios.post('/api/smart-analyze', {
-        query: '7 giờ trước có tấn công không?',
+        query: '5 phút trước có tấn công không?',
         send_telegram: true,
         source_label: 'realtime'
       })

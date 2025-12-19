@@ -5,7 +5,7 @@ This module defines the core data structures used throughout the analysis workfl
 including event normalization, attack classification, and findings reporting.
 """
 
-from typing import TypedDict, Optional, Literal
+from typing import TypedDict, Optional, Literal, Any
 
 
 class Event(TypedDict):
@@ -123,6 +123,20 @@ class TISummary(TypedDict):
     """
     iocs: list[dict]
     ti_overall: dict
+
+
+class AttackStatistics(TypedDict):
+    """
+    Simple attack statistics for recommendation report - similar to Statistics page.
+    
+    Attributes:
+        ip_details: List of IP attack details (like current Statistics page)
+        uri_details: List of most attacked URIs
+        summary: Basic summary stats
+    """
+    ip_details: list[dict[str, Any]]  # [{"ip": "1.2.3.4", "attack_type": "sqli", "count": 50, "status": "high"}]
+    uri_details: list[dict[str, Any]]  # [{"uri": "/admin", "count": 30, "method": "POST"}]
+    summary: dict[str, Any]           # {"total_ips": 10, "total_uris": 5}
 
 
 class RecommendSummary(TypedDict):

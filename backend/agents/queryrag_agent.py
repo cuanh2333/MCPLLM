@@ -1,17 +1,15 @@
 """
 V3 QueryRAGAgent: Answer security knowledge queries using RAG.
 
-This agent queries OWASP/MITRE/Sigma knowledge base via rag_server.py
-and synthesizes answers using LLM.
+This agent queries OWASP/MITRE/Sigma knowledge base via unified MCP server.
 """
 
 import json
 import logging
 from typing import Optional
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
 from backend.utils.llm_factory import create_llm
 from backend.config import settings
+from backend.services.unified_mcp_client import get_unified_client
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +32,7 @@ class QueryRAGAgent:
             model=model,
             temperature=temperature
         )
-        self.mcp_server_path = settings.rag_server_path
-        
-        # Cache for MCP session (reuse connection)
-        self._mcp_session = None
-        self._mcp_context = None
+        self.mcp_client = get_unified_client()
     
     async def query_knowledge(
         self,
@@ -288,7 +282,7 @@ class QueryRAGAgent:
             
             # Build request payload
             payload = {
-                "question": question,
+                "query": question,
                 "top_k": 5
             }
             if category:

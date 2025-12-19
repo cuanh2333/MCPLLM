@@ -25,7 +25,7 @@ const CronMonitoringFinal = () => {
 
   const fetchStatus = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/cron/status');
+      const response = await fetch('http://127.0.0.1:8888/cron/status');
       const data = await response.json();
       setIsRunning(data.is_running);
     } catch (err) {
@@ -36,7 +36,7 @@ const CronMonitoringFinal = () => {
   const fetchStatistics = async () => {
     try {
       // Fetch cron-specific statistics (aggregated from all cron runs)
-      const response = await fetch('http://127.0.0.1:8000/cron/statistics');
+      const response = await fetch('http://127.0.0.1:8888/cron/statistics');
       const data = await response.json();
       
       // If no cron data, set empty statistics
@@ -70,7 +70,7 @@ const CronMonitoringFinal = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://127.0.0.1:8000/cron/start', {
+      const response = await fetch('http://127.0.0.1:8888/cron/start', {
         method: 'POST',
       });
       if (response.ok) {
@@ -88,7 +88,7 @@ const CronMonitoringFinal = () => {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://127.0.0.1:8000/cron/stop', {
+      const response = await fetch('http://127.0.0.1:8888/cron/stop', {
         method: 'POST',
       });
       if (response.ok) {
@@ -137,11 +137,36 @@ const CronMonitoringFinal = () => {
             Status: {isRunning ? '✅ Running' : '⏸️ Stopped'}
           </div>
           <div style={{ fontSize: '14px', opacity: 0.9 }}>
-            Interval: 5 minutes | Window: -7h-5m to -7h
+            Interval: 5 minutes | Window: -5m to now
           </div>
         </div>
 
         <div style={{ display: 'flex', gap: '12px' }}>
+          <button
+            onClick={async () => {
+              try {
+                const response = await fetch('http://127.0.0.1:8888/cron/reload', { method: 'POST' });
+                const data = await response.json();
+                alert(`✅ ${data.message}\nNew config: ${data.config.earliest_time} to ${data.config.latest_time}`);
+                fetchStatus(); // Refresh status
+              } catch (err) {
+                alert(`❌ Failed to reload config: ${err.message}`);
+              }
+            }}
+            disabled={loading}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#17a2b8',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            🔄 Reload Config
+          </button>
+          
           {!isRunning ? (
             <button
               onClick={handleStart}
@@ -219,46 +244,66 @@ const CronMonitoringFinal = () => {
             marginBottom: '24px'
           }}>
             <div style={{
-              background: 'white',
+              background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
               padding: '24px',
               borderRadius: '12px',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              color: 'white'
             }}>
-              <div style={{ fontSize: '14px', color: '#64748b', marginBottom: '8px' }}>
-                TOTAL EVENTS
+              <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>
+                📊 TỔNG SỰ KIỆN
               </div>
-              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#1e293b' }}>
+              <div style={{ fontSize: '32px', fontWeight: 'bold' }}>
                 {statistics.total_events || 0}
               </div>
             </div>
 
             <div style={{
-              background: 'white',
+              background: statistics.total_attack_events > 0 
+                ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%)'
+                : 'linear-gradient(135deg, #10ac84 0%, #00d2d3 100%)',
               padding: '24px',
               borderRadius: '12px',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              color: 'white'
             }}>
-              <div style={{ fontSize: '14px', color: '#64748b', marginBottom: '8px' }}>
-                ATTACK EVENTS
+              <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>
+                {statistics.total_attack_events > 0 ? '🚨 CUỘC TẤN CÔNG' : '✅ AN TOÀN'}
               </div>
-              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#ef4444' }}>
+              <div style={{ fontSize: '32px', fontWeight: 'bold' }}>
                 {statistics.total_attack_events || 0}
+              </div>
+              <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                {statistics.total_attack_events > 0 ? 'Phát hiện tấn công!' : 'Không có tấn công'}
               </div>
             </div>
 
             <div style={{
-              background: 'white',
+              background: (() => {
+                const rate = statistics.total_events > 0 
+                  ? (statistics.total_attack_events / statistics.total_events) * 100 
+                  : 0;
+                if (rate === 0) return 'linear-gradient(135deg, #10ac84 0%, #00d2d3 100%)';
+                if (rate < 10) return 'linear-gradient(135deg, #f39c12 0%, #f1c40f 100%)';
+                return 'linear-gradient(135deg, #e74c3c 0%, #c0392b 100%)';
+              })(),
               padding: '24px',
               borderRadius: '12px',
-              boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+              color: 'white'
             }}>
-              <div style={{ fontSize: '14px', color: '#64748b', marginBottom: '8px' }}>
-                ATTACK RATE
+              <div style={{ fontSize: '14px', opacity: 0.9, marginBottom: '8px' }}>
+                📈 TỶ LỆ TẤN CÔNG
               </div>
-              <div style={{ fontSize: '32px', fontWeight: 'bold', color: '#f59e0b' }}>
+              <div style={{ fontSize: '32px', fontWeight: 'bold' }}>
                 {statistics.total_events > 0
                   ? ((statistics.total_attack_events / statistics.total_events) * 100).toFixed(1)
                   : 0}%
+              </div>
+              <div style={{ fontSize: '12px', opacity: 0.8, marginTop: '4px' }}>
+                {statistics.total_events > 0 
+                  ? `${statistics.total_attack_events}/${statistics.total_events} events`
+                  : 'Chưa có dữ liệu'}
               </div>
             </div>
 
@@ -350,7 +395,7 @@ const CronMonitoringFinal = () => {
               alignItems: 'center',
               gap: '8px'
             }}>
-              <span style={{ fontSize: '20px' }}>ℹ️</span> How It Works
+              <span style={{ fontSize: '20px' }}>ℹ️</span> Cách Hoạt Động
             </h3>
             <ul style={{ 
               margin: 0, 
@@ -359,11 +404,11 @@ const CronMonitoringFinal = () => {
               color: '#1e293b',
               fontSize: '15px'
             }}>
-              <li style={{ marginBottom: '8px' }}><strong>🔄</strong> Analyzes logs every 5 minutes automatically</li>
-              <li style={{ marginBottom: '8px' }}><strong>⏱️</strong> Uses sliding window: 7 hours ago (5-minute window)</li>
-              <li style={{ marginBottom: '8px' }}><strong>📱</strong> Sends Telegram alerts only when attacks detected</li>
-              <li style={{ marginBottom: '8px' }}><strong>📊</strong> Statistics auto-refresh every 30 seconds</li>
-              <li><strong>🛑</strong> Click "Stop" to pause monitoring</li>
+              <li style={{ marginBottom: '8px' }}><strong>🔄</strong> Tự động phân tích log mỗi 5 phút</li>
+              <li style={{ marginBottom: '8px' }}><strong>⏱️</strong> Giám sát thời gian thực (5 phút gần nhất)</li>
+              <li style={{ marginBottom: '8px' }}><strong>📱</strong> Gửi cảnh báo Telegram khi phát hiện tấn công</li>
+              <li style={{ marginBottom: '8px' }}><strong>📊</strong> Thống kê tự động cập nhật mỗi 30 giây</li>
+              <li><strong>🛑</strong> Nhấn "Stop" để tạm dừng giám sát</li>
             </ul>
           </div>
 
@@ -374,16 +419,16 @@ const CronMonitoringFinal = () => {
       {!statistics && !isRunning && (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏰</div>
-          <h3 style={{ fontSize: '20px', marginBottom: '8px' }}>No Cron Data Yet</h3>
-          <p>Start monitoring to begin collecting statistics</p>
+          <h3 style={{ fontSize: '20px', marginBottom: '8px' }}>Chưa Có Dữ Liệu</h3>
+          <p>Bắt đầu giám sát để thu thập thống kê</p>
         </div>
       )}
       
       {!statistics && isRunning && (
         <div style={{ textAlign: 'center', padding: '60px 20px', color: '#64748b' }}>
           <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏳</div>
-          <h3 style={{ fontSize: '20px', marginBottom: '8px' }}>Waiting for First Analysis</h3>
-          <p>Cron will run every 5 minutes. First results coming soon...</p>
+          <h3 style={{ fontSize: '20px', marginBottom: '8px' }}>Đang Chờ Phân Tích Đầu Tiên</h3>
+          <p>Cron sẽ chạy mỗi 5 phút. Kết quả đầu tiên sắp có...</p>
         </div>
       )}
     </div>

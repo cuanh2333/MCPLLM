@@ -132,6 +132,7 @@ def _get_aggregated_ip_details(runs: Dict) -> List[Dict]:
     import csv
     from collections import defaultdict
     import glob
+    import ast
     
     ip_attacks = defaultdict(lambda: {"count": 0, "types": set()})
     
@@ -159,7 +160,7 @@ def _get_aggregated_ip_details(runs: Dict) -> List[Dict]:
     # Read all CSV files
     for csv_path in csv_files_to_read:
         try:
-            with open(csv_path, 'r', encoding='utf-8') as f:
+            with open(csv_path, 'r', encoding='utf-8-sig') as f:  # utf-8-sig handles BOM
                 reader = csv.DictReader(f)
                 for row in reader:
                     src_ip = row.get('src_ip', 'Unknown')
@@ -171,16 +172,134 @@ def _get_aggregated_ip_details(runs: Dict) -> List[Dict]:
             print(f"Error reading CSV {csv_path}: {e}")
             continue
     
+    # Load threat intelligence cache for IP reputation data
+    ti_cache = {}
+    ti_cache_path = "./output/ti_cache.json"
+    if os.path.exists(ti_cache_path):
+        try:
+            with open(ti_cache_path, 'r', encoding='utf-8') as f:
+                ti_cache = json.load(f)
+        except Exception as e:
+            print(f"Error reading TI cache: {e}")
+    
     # Convert to list and sort by count
     ip_details = []
     for ip, data in sorted(ip_attacks.items(), key=lambda x: x[1]["count"], reverse=True)[:20]:
+        # Get IP reputation data - Priority order: Asset DB > TI cache > IP range
+        status = "unknown"
+        status_text = "Chưa kiểm tra"
+        severity = "5.0"
+        
+        # Priority 1: Check Asset DB first (most authoritative for internal assets)
+        try:
+            # Load asset database directly
+            asset_db_path = "./backend/asset_db.json"
+            asset_info = None
+            if os.path.exists(asset_db_path):
+                with open(asset_db_path, 'r', encoding='utf-8') as f:
+                    asset_db = json.load(f)
+                    asset_info = asset_db.get('assets', {}).get(ip)
+            
+            if asset_info:
+                asset_type = asset_info.get('type', '')
+                asset_label = asset_info.get('label', '')
+                asset_description = asset_info.get('description', '')
+                
+                if asset_type == 'PENTEST' or asset_label == 'AUTHORIZED_ATTACKER':
+                    status = "safe"
+                    status_text = f"IP Pentest được ủy quyền ({asset_description})"
+                    severity = "2.0"
+                elif asset_label == 'PROTECTED_ASSET':
+                    status = "safe"
+                    status_text = f"Tài sản được bảo vệ ({asset_description})"
+                    severity = "1.0"
+                elif asset_type == 'SERVER':
+                    status = "safe"
+                    status_text = f"Máy chủ nội bộ ({asset_description})"
+                    severity = "1.0"
+                elif asset_type == 'COLLECTOR':
+                    status = "safe"
+                    status_text = f"Log Collector ({asset_description})"
+                    severity = "1.0"
+                else:
+                    # Other asset types - still internal
+                    status = "safe"
+                    status_text = f"Tài sản nội bộ ({asset_type})"
+                    severity = "1.0"
+        except Exception as e:
+            asset_info = None
+        
+        # Priority 2: Check TI cache if not in Asset DB
+        if not asset_info and ip in ti_cache:
+            ti_data = ti_cache[ip].get('ti_data', {})
+            abuseipdb_str = ti_data.get('abuseipdb', '')
+            
+            if abuseipdb_str and abuseipdb_str != 'None':
+                try:
+                    # Parse the AbuseIPDB data (it's stored as string representation of dict)
+                    abuseipdb_data = ast.literal_eval(abuseipdb_str)
+                    confidence_score = abuseipdb_data.get('abuse_confidence_score', 0)
+                    total_reports = abuseipdb_data.get('total_reports', 0)
+                    usage_type = abuseipdb_data.get('usage_type', '')
+                    
+                    if usage_type == 'Reserved':
+                        status = "safe"
+                        status_text = "IP nội bộ"
+                        severity = "1.0"
+                    elif confidence_score == 0 and total_reports == 0:
+                        status = "safe"
+                        status_text = "Không có báo cáo độc hại"
+                        severity = "2.0"
+                    elif confidence_score > 0:
+                        if confidence_score >= 75:
+                            status = "malicious"
+                            status_text = f"Độc hại cao ({confidence_score}% confidence)"
+                            severity = "9.0"
+                        elif confidence_score >= 25:
+                            status = "suspicious"
+                            status_text = f"Khả nghi ({confidence_score}% confidence)"
+                            severity = "7.0"
+                        else:
+                            status = "low_risk"
+                            status_text = f"Rủi ro thấp ({confidence_score}% confidence)"
+                            severity = "4.0"
+                    else:
+                        status = "unknown"
+                        status_text = "Dữ liệu không đầy đủ"
+                        severity = "5.0"
+                        
+                except Exception as e:
+                    status = "unknown"
+                    status_text = "Lỗi phân tích dữ liệu"
+                    severity = "5.0"
+            else:
+                # No AbuseIPDB data but IP is in cache - likely checked but no data
+                status = "unknown"
+                status_text = "Không có dữ liệu AbuseIPDB"
+                severity = "5.0"
+        elif not asset_info:
+            # Priority 3: Not in Asset DB and not in TI cache - use IP range detection
+            if ip.startswith(('192.168.', '10.', '172.16.', '172.17.', '172.18.', '172.19.', 
+                             '172.20.', '172.21.', '172.22.', '172.23.', '172.24.', '172.25.',
+                             '172.26.', '172.27.', '172.28.', '172.29.', '172.30.', '172.31.',
+                             '127.', 'localhost')):
+                # Private IP not in Asset DB and not checked via AbuseIPDB
+                status = "safe"
+                status_text = "IP nội bộ (chưa kiểm tra AbuseIPDB)"
+                severity = "3.0"
+            else:
+                # External IP not in TI cache - should have been checked
+                status = "unknown"
+                status_text = "IP ngoại vi chưa kiểm tra AbuseIPDB"
+                severity = "5.0"
+        
         ip_details.append({
             "ip": ip,
             "count": data["count"],
             "attack_type": ", ".join(sorted(data["types"])),
-            "status": "unknown",
-            "status_text": "Chưa kiểm tra",
-            "severity": "5.0"
+            "status": status,
+            "status_text": status_text,
+            "severity": severity
         })
     
     return ip_details

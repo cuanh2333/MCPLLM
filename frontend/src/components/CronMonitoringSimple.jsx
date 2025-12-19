@@ -7,7 +7,7 @@ const CronMonitoringSimple = () => {
   const handleStart = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://127.0.0.1:8000/cron/start', {
+      const response = await fetch('http://127.0.0.1:8888/cron/start', {
         method: 'POST',
       });
       if (response.ok) {
@@ -24,7 +24,7 @@ const CronMonitoringSimple = () => {
   const handleStop = async () => {
     setLoading(true);
     try {
-      const response = await fetch('http://127.0.0.1:8000/cron/stop', {
+      const response = await fetch('http://127.0.0.1:8888/cron/stop', {
         method: 'POST',
       });
       if (response.ok) {
@@ -94,7 +94,7 @@ const CronMonitoringSimple = () => {
         <h3>ℹ️ How It Works</h3>
         <ul>
           <li>🔄 Analyzes logs every 5 minutes automatically</li>
-          <li>⏱️ Uses sliding window: 7 hours ago (5-minute window)</li>
+          <li>⏱️ Monitors last 5 minutes in real-time</li>
           <li>📱 Sends Telegram alerts only when attacks detected</li>
           <li>🛑 Click "Stop" to pause monitoring</li>
         </ul>

@@ -50,7 +50,7 @@ function Statistics() {
 
   const fetchAvailableReports = async () => {
     try {
-      const response = await axios.get('http://127.0.0.1:8000/statistics/reports')
+      const response = await axios.get('http://127.0.0.1:8888/statistics/reports')
       const grouped = response.data.reports_by_source || {}
       setReportsBySource(grouped)
       
@@ -68,7 +68,7 @@ function Statistics() {
     setError(null)
     try {
       // Use aggregated statistics from metadata (for cron/query/all)
-      const response = await axios.get(`http://127.0.0.1:8000/statistics/aggregated?source=${sourceType}`)
+      const response = await axios.get(`http://127.0.0.1:8888/statistics/aggregated?source=${sourceType}`)
       console.log('Aggregated statistics data:', response.data)
       console.log('Total events:', response.data.total_events)
       console.log('Attack events:', response.data.total_attack_events)
@@ -88,7 +88,7 @@ function Statistics() {
     setError(null)
     try {
       // For file uploads, fetch individual report statistics
-      const response = await axios.get(`http://127.0.0.1:8000/statistics?report=${reportId}&source=file`)
+      const response = await axios.get(`http://127.0.0.1:8888/statistics?report=${reportId}&source=file`)
       console.log('File statistics data:', response.data)
       setStats(response.data)
     } catch (err) {
@@ -302,7 +302,7 @@ function Statistics() {
               <div className="stat-card-value">{stats.total_runs || 0}</div>
               <div className="stat-card-indicator">
                 <span className="indicator-dot"></span>
-                {stats.runs_with_attacks || 0} lần phát hiện tấn công
+                {stats.runs_with_attacks || 0} lần có tấn công
               </div>
             </div>
           </div>

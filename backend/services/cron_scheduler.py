@@ -20,17 +20,17 @@ class CronScheduler:
     Features:
     - Start/stop scheduling via API
     - Configurable interval (default: 5 minutes)
-    - Sliding window analysis (earliest=-7h-5m, latest=-7h)
+    - Real-time monitoring (earliest=-5m, latest=now)
     - Automatic Telegram notifications
     """
     
-    def __init__(self, backend_url: str = "http://127.0.0.1:8000"):
+    def __init__(self, backend_url: str = "http://127.0.0.1:8888"):
         self.backend_url = backend_url
         self.is_running = False
         self.task: Optional[asyncio.Task] = None
         self.interval_minutes = 5
-        self.earliest_time = "-7h-5m"
-        self.latest_time = "-7h"
+        self.earliest_time = "-5m"
+        self.latest_time = "now"
         
     async def start(self):
         """Start the cron scheduler."""
@@ -70,6 +70,14 @@ class CronScheduler:
             "next_run": None  # TODO: track next run time
         }
     
+    def reload_config(self):
+        """Reload configuration from environment variables."""
+        import os
+        self.earliest_time = os.getenv("SPLUNK_EARLIEST_TIME", "-5m")
+        self.latest_time = os.getenv("SPLUNK_LATEST_TIME", "now")
+        logger.info(f"✅ Reloaded config: {self.earliest_time} to {self.latest_time}")
+        return True
+    
     async def _run_loop(self):
         """Main scheduler loop."""
         logger.info("Cron scheduler loop started")
@@ -100,7 +108,7 @@ class CronScheduler:
             
             # Prepare request
             # Note: send_telegram will be conditional based on attack detection
-            # Note: No need to pass earliest_time/latest_time - cron_splunk_query uses default -7h-5m to -7h
+            # Note: No need to pass earliest_time/latest_time - cron_splunk_query uses default -5m to now
             payload = {
                 "query": "Phân tích log từ Splunk có tấn công không?",
                 "send_telegram": False,  # Will check and send only if has attack

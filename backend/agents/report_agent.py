@@ -17,7 +17,8 @@ from backend.models import (
     FindingsSummary,
     TISummary,
     RecommendSummary,
-    AttackEventsRef
+    AttackEventsRef,
+    AttackStatistics
 )
 
 
@@ -202,6 +203,30 @@ PHÁT HIỆN:
         for action in recommend_summary['long_term_actions']:
             prompt += f"  - {action}\n"
         
+        # Generate attack statistics for report
+        attack_statistics = self._generate_attack_statistics(findings_summary, ti_summary)
+        
+        # Add simple attack statistics to prompt
+        if attack_statistics:
+            prompt += "\n\nBẢNG THỐNG KÊ ĐƠN GIẢN:\n"
+            
+            # IP Details (like Statistics page)
+            if attack_statistics.get('ip_details'):
+                prompt += "\nDữ Liệu Chi Tiết IP:\n"
+                for ip_detail in attack_statistics['ip_details'][:10]:
+                    prompt += f"  - {ip_detail['ip']}: {ip_detail['attack_type']} ({ip_detail['count']} lần) - {ip_detail['status_text']}\n"
+            
+            # URI Details
+            if attack_statistics.get('uri_details'):
+                prompt += "\nURI Bị Tấn Công Nhiều Nhất:\n"
+                for uri_detail in attack_statistics['uri_details'][:5]:
+                    prompt += f"  - {uri_detail['uri']}: {uri_detail['count']} lần ({uri_detail['method']})\n"
+            
+            # Summary
+            if attack_statistics.get('summary'):
+                summary = attack_statistics['summary']
+                prompt += f"\nTóm Tắt: {summary['total_ips']} IP, {summary['total_uris']} URI, {summary['high_risk_ips']} IP rủi ro cao\n"
+        
         prompt += """
 
 Tạo báo cáo markdown chuyên nghiệp BẰNG TIẾNG VIỆT với cấu trúc sau:
@@ -227,6 +252,12 @@ Danh sách các techniques phát hiện
 
 ### Phân Tích Nguồn
 Top IP tấn công và đặc điểm
+
+## Dữ Liệu Chi Tiết IP
+Bảng đơn giản giống màn hình thống kê với các cột: Địa Chỉ IP, Kỹ Thuật Tấn Công, Số Lần, Trạng Thái (AbuseIPDB), Mức Độ
+
+## URI Bị Tấn Công Nhiều Nhất
+Bảng đơn giản với các cột: URI, Số Lần Tấn Công, Phương Thức
 
 ## Threat Intelligence
 ### Phân Tích IOC
@@ -396,3 +427,102 @@ Báo cáo này tóm tắt kết quả phân tích bảo mật được thực hi
         
         logger.info(f"PDF exported successfully: {pdf_path}")
         return pdf_path
+    def _generate_attack_statistics(
+        self,
+        findings_summary: FindingsSummary,
+        ti_summary: TISummary
+    ) -> AttackStatistics:
+        """
+        Generate simple attack statistics for report (like Statistics page).
+        
+        Args:
+            findings_summary: Analysis findings summary
+            ti_summary: Threat intelligence summary
+        
+        Returns:
+            AttackStatistics with simple IP and URI details
+        """
+        logger.info("Generating attack statistics for report")
+        
+        ip_details = []
+        uri_details = []
+        
+        # Process attack breakdown to create IP details (similar to Statistics page)
+        for attack_breakdown in findings_summary.get('attack_breakdown', []):
+            attack_type = attack_breakdown.get('attack_type', 'unknown')
+            count = attack_breakdown.get('count', 0)
+            
+            for src_ip in attack_breakdown.get('source_ips', []):
+                # Estimate count per IP
+                estimated_count = count // len(attack_breakdown.get('source_ips', [1]))
+                
+                # Get TI status if available
+                status = 'unknown'
+                status_text = 'Chưa kiểm tra'
+                severity = '0.0'
+                
+                if ti_summary and isinstance(ti_summary, dict) and ti_summary.get('iocs'):
+                    for ioc in ti_summary['iocs']:
+                        if ioc.get('ip') == src_ip:
+                            risk = ioc.get('risk', 'unknown')
+                            abuse_score = ioc.get('abuse_score', 0)
+                            
+                            if risk == 'high':
+                                status = 'high'
+                                status_text = f'Rủi ro cao ({abuse_score}/100)'
+                                severity = str(min(10.0, abuse_score / 10))
+                            elif risk == 'medium':
+                                status = 'medium'
+                                status_text = f'Rủi ro trung bình ({abuse_score}/100)'
+                                severity = str(min(7.0, abuse_score / 15))
+                            else:
+                                status = 'low'
+                                status_text = f'Rủi ro thấp ({abuse_score}/100)'
+                                severity = str(min(5.0, abuse_score / 20))
+                            break
+                
+                ip_details.append({
+                    'ip': src_ip,
+                    'attack_type': attack_type.upper(),
+                    'count': estimated_count,
+                    'status': status,
+                    'status_text': status_text,
+                    'severity': severity
+                })
+        
+        # Process sample events to create URI details
+        uri_counter = {}
+        if findings_summary.get('sample_events'):
+            for event in findings_summary['sample_events']:
+                uri = event.get('uri', '/')
+                method = event.get('method', 'GET')
+                
+                if uri not in uri_counter:
+                    uri_counter[uri] = {
+                        'count': 0,
+                        'method': method
+                    }
+                uri_counter[uri]['count'] += 1
+        
+        # Convert to sorted list (top 10)
+        uri_details = [
+            {
+                'uri': uri,
+                'count': data['count'],
+                'method': data['method']
+            }
+            for uri, data in sorted(uri_counter.items(), key=lambda x: x[1]['count'], reverse=True)[:10]
+        ]
+        
+        # Create summary
+        summary = {
+            'total_ips': len(ip_details),
+            'total_uris': len(uri_details),
+            'high_risk_ips': len([ip for ip in ip_details if ip['status'] == 'high'])
+        }
+        
+        return AttackStatistics(
+            ip_details=ip_details,
+            uri_details=uri_details,
+            summary=summary
+        )

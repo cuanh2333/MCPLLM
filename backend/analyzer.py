@@ -11,10 +11,9 @@ from datetime import datetime
 from typing import Optional
 
 from langchain_groq import ChatGroq
-from mcp import ClientSession, StdioServerParameters
-from mcp.client.stdio import stdio_client
 
 from backend.models import AnalysisState, Event, AttackEventsRef, EventLabel
+from backend.services.unified_mcp_client import get_unified_client
 from backend.config import settings
 from backend.normalizer import normalize_log_entry
 from backend.agents.analyze_agent import LLMAnalyzer
@@ -318,105 +317,83 @@ class AnalysisOrchestrator:
         
         try:
             # Set up MCP server parameters
-            # Pass environment variables to MCP server subprocess
-            import os
-            server_params = StdioServerParameters(
-                command="python",
-                args=[self.mcp_server_path],
-                env=dict(os.environ)  # Pass all environment variables
-            )
+            # Use unified MCP client
+            mcp_client = get_unified_client()
             
-            # Connect to MCP server and call appropriate tool
-            async with stdio_client(server_params) as (read, write):
-                async with ClientSession(read, write) as session:
-                    # Initialize session
-                    await session.initialize()
-                    logger.info("MCP session initialized")
+            # Call appropriate method based on source type
+            if source_type == "file":
+                # Load logs from file
+                filepath = log_source.get('path')
+                max_lines = log_source.get('max_lines')
+                
+                if not filepath:
+                    raise ValueError("log_source with type 'file' must contain 'path' field")
+                
+                logger.info(f"Calling load_log_file: path={filepath}, max_lines={max_lines}")
+                
+                logs = await mcp_client.load_log_file(filepath, max_lines)
+                
+                logger.info(f"Retrieved {len(logs)} logs from file")
+                return logs
                     
-                    # Call appropriate tool based on source type
-                    if source_type == "file":
-                        # Load logs from file
-                        filepath = log_source.get('path')
-                        max_lines = log_source.get('max_lines')
-                        
-                        if not filepath:
-                            raise ValueError("log_source with type 'file' must contain 'path' field")
-                        
-                        logger.info(f"Calling load_log_file tool: path={filepath}, max_lines={max_lines}")
-                        
-                        result = await session.call_tool(
-                            "load_log_file",
-                            arguments={
-                                "filepath": filepath,
-                                "max_lines": max_lines
-                            }
-                        )
-                        
-                        # Extract log lines from result
-                        # MCP returns list of TextContent objects, each containing one log line
-                        if result.content:
-                            logs = [content.text for content in result.content]
-                        else:
-                            logs = []
-                        
-                        logger.info(f"Retrieved {len(logs)} logs from file")
-                        return logs
-                    
-                    elif source_type == "splunk":
-                        # Retrieve logs from Splunk
-                        index = log_source.get('index')
-                        sourcetype = log_source.get('sourcetype')
-                        earliest_time = log_source.get('earliest_time', '-1h')
-                        latest_time = log_source.get('latest_time', 'now')
-                        search_filter = log_source.get('search_filter', '')
-                        
-                        if not index or not sourcetype:
-                            raise ValueError("log_source with type 'splunk' must contain 'index' and 'sourcetype' fields")
-                        
-                        logger.info(f"Calling splunk_search tool: index={index}, sourcetype={sourcetype}")
-                        
-                        result = await session.call_tool(
-                            "splunk_search",
-                            arguments={
-                                "index": index,
-                                "sourcetype": sourcetype,
-                                "earliest_time": earliest_time,
-                                "latest_time": latest_time,
-                                "search_filter": search_filter
-                            }
-                        )
-                        
-                        # Extract log lines from result
-                        # MCP returns list of TextContent objects, each containing one log line
-                        if result.content:
-                            logs = [content.text for content in result.content]
-                        else:
-                            logs = []
-                        
-                        logger.info(f"Retrieved {len(logs)} logs from Splunk")
-                        return logs
-                    
-                    elif source_type == "cron_splunk":
-                        # Retrieve logs using cron-specific Splunk query (default: -7h-5m to -7h)
-                        logger.info("Calling cron_splunk_query tool (default: -7h-5m to -7h)")
-                        
-                        result = await session.call_tool(
-                            "cron_splunk_query",
-                            arguments={}
-                        )
-                        
-                        # Extract log lines from result
-                        # MCP returns list of TextContent objects, each containing one log line
-                        if result.content:
-                            logs = [content.text for content in result.content]
-                        else:
-                            logs = []
-                        
-                        logger.info(f"Retrieved {len(logs)} logs from cron Splunk query")
-                        return logs
-                    
+            elif source_type == "splunk":
+                # Retrieve logs from Splunk
+                index = log_source.get('index')
+                sourcetype = log_source.get('sourcetype')
+                earliest_time = log_source.get('earliest_time', '-1h')
+                latest_time = log_source.get('latest_time', 'now')
+                search_query = log_source.get('search_filter', '')
+                
+                if not index or not sourcetype:
+                    raise ValueError("log_source with type 'splunk' must contain 'index' and 'sourcetype' fields")
+                
+                logger.info(f"Calling splunk_query: index={index}, sourcetype={sourcetype}")
+                
+                results = await mcp_client.splunk_query(
+                    index=index,
+                    sourcetype=sourcetype,
+                    earliest_time=earliest_time,
+                    latest_time=latest_time,
+                    search_query=search_query
+                )
+                
+                # Convert Splunk results to log lines
+                logs = []
+                for result in results:
+                    if isinstance(result, dict):
+                        log_line = result.get('_raw', str(result))
                     else:
-                        raise ValueError(f"Unsupported log_source type: {source_type}")
+                        log_line = str(result)
+                    logs.append(log_line)
+                
+                logger.info(f"Retrieved {len(logs)} logs from Splunk")
+                return logs
+            
+            elif source_type == "cron_splunk":
+                # Retrieve logs using cron-specific Splunk query (default: -5m to now)
+                logger.info("Calling splunk_query for cron (default: -5m to now)")
+                
+                results = await mcp_client.splunk_query(
+                    index=settings.splunk_index,
+                    sourcetype=settings.splunk_sourcetype,
+                    earliest_time=settings.splunk_earliest_time,
+                    latest_time=settings.splunk_latest_time
+                )
+                
+                # Convert Splunk results to log lines
+                logs = []
+                for result in results:
+                    if isinstance(result, dict):
+                        log_line = result.get('_raw', str(result))
+                    else:
+                        log_line = str(result)
+                    logs.append(log_line)
+                
+                logger.info(f"Retrieved {len(logs)} logs from cron Splunk query")
+                return logs
+            
+            else:
+                raise ValueError(f"Unsupported log_source type: {source_type}")
         
         except Exception as e:
             logger.error(f"Failed to fetch logs from MCP server: {e}")

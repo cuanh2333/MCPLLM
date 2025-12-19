@@ -429,8 +429,8 @@ If no specific attack type mentioned, return:
         
         # Get default index and sourcetype from environment
         import os
-        default_index = os.getenv("SPLUNK_INDEX", "web_iis")
-        default_sourcetype = os.getenv("SPLUNK_SOURCETYPE", "modsec:dvwa")
+        default_index = os.getenv("SPLUNK_INDEX", "hf")
+        default_sourcetype = os.getenv("SPLUNK_SOURCETYPE", "win_log")
         
         prompt = f"""Parse this user query and determine the log source.
 

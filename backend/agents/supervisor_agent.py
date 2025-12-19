@@ -188,7 +188,7 @@ class SupervisorAgent:
         has_log_source: bool,
         log_source_type: Optional[str]
     ) -> str:
-        """Build prompt for job classification.
+        """Build prompt for job classification with better reasoning.
         
         Args:
             user_query: User's request
@@ -198,119 +198,95 @@ class SupervisorAgent:
         Returns:
             Prompt string
         """
-        return f"""You are a security analysis workflow supervisor.
+        return f"""You are an intelligent security analysis supervisor. Analyze the user's intent and choose the best workflow.
 
-**User Request:**
-- Query: "{user_query}"
-- Has log source: {has_log_source}
-- Log source type: {log_source_type or "None"}
+**User Request:** "{user_query}"
+**Available Resources:** {"Log source provided" if has_log_source else "No log source"}
 
-**Task:**
-Classify the job type and set initial workflow flags.
+**Your Task:** 
+Understand what the user REALLY wants to accomplish, then classify the job type and set appropriate workflow flags.
 
-**Job Types (in priority order):**
-1. **generic_rule**: User wants to create detection rules (keywords: "tạo rule", "tao rule", "create rule", "Sigma", "SPL", "detection rule", "detect", "phát hiện") - HIGHEST PRIORITY
-2. **log_analysis**: User wants to analyze logs (has log_source)
-3. **asset_query**: User asks about internal assets/infrastructure (keywords: "IP pentest", "IP máy chủ", "server", "máy chủ", "thiết bị", "tài sản", "asset", "hệ thống", "infrastructure", "nghiệp vụ")
-4. **ip_reputation**: User wants to check EXTERNAL IP reputation/threat intelligence (keywords: "check IP", "kiểm tra IP", "độc hại", "malicious", "reputation", "abuse") - ONLY if asking about external/unknown IPs
-5. **knowledge_query**: User asks security questions (no log_source, knowledge keywords)
+**Available Workflows:**
 
-**Output Format (JSON):**
+1. **log_analysis** - Analyze security logs for attacks
+   - When: User has logs and wants to find/analyze attacks
+   - Flags: need_analyze=true, need_ti=true, need_recommend=true, need_report=true
+
+2. **knowledge_query** - Answer security questions using knowledge base  
+   - When: User asks "what is", "how to", "explain" about security topics
+   - Flags: need_queryrag=true (all others false)
+
+3. **asset_query** - Look up internal infrastructure information
+   - When: User asks about internal servers, IP addresses, business assets
+   - Flags: need_asset=true, need_queryrag=true (others false)
+
+4. **ip_reputation** - Check if external IPs are malicious
+   - When: User wants to check unknown/external IP addresses for threats
+   - Flags: need_ti=true (all others false)
+
+5. **generic_rule** - Create detection rules for specific attacks
+   - When: User wants to create Sigma/Splunk/detection rules
+   - Flags: need_queryrag=true, need_genrule=true (others false)
+
+**Think Step by Step:**
+
+1. **What is the user's primary intent?**
+   - Analyze existing logs? → log_analysis
+   - Learn about security concepts? → knowledge_query  
+   - Find info about internal systems? → asset_query
+   - Check if IPs are malicious? → ip_reputation
+   - Create detection rules? → generic_rule
+
+2. **What evidence supports this intent?**
+   - Look for action words: "analyze", "check", "explain", "create", "find"
+   - Look for objects: "logs", "IP", "server", "rule", "attack"
+   - Consider context: Do they have data to analyze or just asking questions?
+
+3. **What workflow flags make sense?**
+   - Only enable what's needed for the user's goal
+   - Don't enable expensive operations unless necessary
+
+**Examples of Good Reasoning:**
+
+Query: "Phân tích log tấn công trong 2 giờ qua"
+→ Intent: User wants to analyze logs for attacks
+→ Evidence: "phân tích log", "tấn công" + has log source
+→ Classification: log_analysis (need full analysis pipeline)
+
+Query: "SQL injection hoạt động như thế nào?"  
+→ Intent: User wants to learn about SQL injection
+→ Evidence: "như thế nào" (how), no logs mentioned
+→ Classification: knowledge_query (just need knowledge base)
+
+Query: "IP 192.168.1.100 là server gì?"
+→ Intent: User wants info about internal infrastructure  
+→ Evidence: Internal IP range + "server gì"
+→ Classification: asset_query (check internal asset database)
+
+Query: "Kiểm tra IP 14.138.31.1 có độc hại không"
+→ Intent: User wants to check external IP for threats
+→ Evidence: "kiểm tra" + external IP + "độc hại"  
+→ Classification: ip_reputation (check threat intelligence)
+
+Query: "Tạo Sigma rule phát hiện SQL injection"
+→ Intent: User wants to create detection rule
+→ Evidence: "tạo", "Sigma rule", "phát hiện"
+→ Classification: generic_rule (generate detection rule)
+
+**Output Format (JSON only):**
 {{
-  "job_type": "log_analysis|ip_reputation|knowledge_query|asset_query|generic_rule",
-  "reasoning": "Brief explanation of why this classification",
+  "job_type": "log_analysis|knowledge_query|asset_query|ip_reputation|generic_rule",
+  "reasoning": "Clear explanation of user intent and why this classification was chosen",
   "need_analyze": true/false,
-  "need_ti": true/false,
-  "need_genrule": false,
+  "need_ti": true/false, 
+  "need_genrule": true/false,
   "need_recommend": true/false,
   "need_report": true/false,
   "need_queryrag": true/false,
   "need_asset": true/false
 }}
 
-**Rules:**
-- need_genrule is ALWAYS false initially (only enabled by user or post-supervisor)
-- log_analysis: need_analyze=true, need_ti=true, need_recommend=true, need_report=true
-- asset_query: need_asset=true, all others=false (query internal asset database directly)
-- ip_reputation: need_ti=true, all others=false (check external IP reputation)
-- knowledge_query: need_queryrag=true, all others=false
-- generic_rule: need_queryrag=true, need_genrule=true
-
-**Important:**
-- If query asks about "IP pentest", "IP máy chủ", "server của tôi", "hệ thống" → asset_query (internal assets)
-- If query asks to "check IP X.X.X.X" for malicious/reputation → ip_reputation (external threat intel)
-
-**Examples:**
-
-Example 1:
-Query: "Phân tích log tấn công SQL injection"
-Has log source: true
-→ job_type: "log_analysis", need_analyze=true, need_ti=true, need_recommend=true, need_report=true
-
-Example 2:
-Query: "IP pentest của hệ thống là gì?"
-Has log source: false
-→ job_type: "asset_query", need_asset=true (query internal asset database)
-
-Example 3:
-Query: "Check IP 14.138.31.1 có độc hại không"
-Has log source: false
-→ job_type: "ip_reputation", need_ti=true (check external threat intelligence)
-
-Example 4:
-Query: "SQL injection là gì?"
-Has log source: false
-→ job_type: "knowledge_query", need_queryrag=true
-
-Example 5:
-Query: "Thông tin về server 192.168.1.100"
-Has log source: false
-→ job_type: "asset_query", need_asset=true
-
-Example 6:
-Query: "Tạo Sigma rule cho SQL injection"
-Has log source: false
-→ job_type: "generic_rule", need_queryrag=true, need_genrule=true
-
-Example 7:
-Query: "tạo cho tôi rule detect SQL injection"
-Has log source: true (but user wants RULE, not analysis)
-→ job_type: "generic_rule", need_queryrag=true, need_genrule=true
-
-**CRITICAL DECISION RULES (CHECK IN ORDER):**
-
-1. **Does query contain rule generation keywords?**
-   - Vietnamese: "tạo rule", "tạo cho tôi rule", "viết rule", "sinh rule", "detect", "phát hiện"
-   - English: "create rule", "generate rule", "write rule", "detection rule", "Sigma", "SPL"
-   - If YES → job_type = "generic_rule" (STOP HERE, ignore has_log_source)
-
-2. **Does query ask about internal assets/infrastructure?**
-   - Keywords: "IP pentest", "IP máy chủ", "server", "thiết bị", "tài sản", "hệ thống"
-   - If YES → job_type = "asset_query"
-
-3. **Does query ask to check external IP reputation?**
-   - Keywords: "check IP", "kiểm tra IP", "độc hại", "malicious", "reputation"
-   - If YES → job_type = "ip_reputation"
-
-4. **Does has_log_source = true?**
-   - If YES → job_type = "log_analysis"
-
-5. **Otherwise:**
-   - job_type = "knowledge_query"
-
-**EXAMPLES OF TRICKY CASES:**
-
-❌ WRONG:
-Query: "tạo cho tôi rule detect SQL injection"
-has_log_source: true
-→ job_type: "log_analysis" (WRONG! User wants RULE, not analysis)
-
-✅ CORRECT:
-Query: "tạo cho tôi rule detect SQL injection"
-has_log_source: true
-→ job_type: "generic_rule" (User explicitly asks for RULE)
-
-**Response (JSON only, no explanation):**"""
+**Important:** Focus on user INTENT, not just keywords. Think about what they're trying to accomplish."""
     
     def _rule_based_classification(
         self,

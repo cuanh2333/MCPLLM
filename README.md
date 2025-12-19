@@ -1,17 +1,45 @@
-# Security Analysis System - Hệ Thống Phân Tích Bảo Mật
+# 🔐 MCPLLM - Security Analysis System
 
 Hệ thống phân tích log bảo mật tự động sử dụng AI/LLM với khả năng phát hiện tấn công, threat intelligence, và tạo detection rules.
+
+## 🚀 Quick Start
+
+### Chạy Local (Development)
+```bash
+# 1. Test setup
+python scripts/test_local_setup.py
+
+# 2. Chạy full stack
+python run_fullstack.py
+
+# 3. Truy cập
+# Frontend: http://localhost:3000
+# Backend: http://localhost:8888
+# MCP Server: http://localhost:8001
+```
+
+### Deploy Production
+
+**📖 Xem hướng dẫn deployment chi tiết tại: [DEPLOYMENT.md](DEPLOYMENT.md)**
+
+```bash
+# Quick production setup:
+cd scripts
+./setup_production.sh YOUR_SERVER_IP
+
+# Hoặc manual setup:
+./setup_services.sh      # Systemd services
+./setup_nginx.sh         # Nginx reverse proxy
+./start_all.sh          # Start all services
+./test_mcp.sh           # Test deployment
+```
 
 ## 📋 Mục Lục
 
 1. [Tính Năng](#tính-năng)
 2. [Yêu Cầu Hệ Thống](#yêu-cầu-hệ-thống)
-3. [Cài Đặt](#cài-đặt)
-4. [Cấu Hình](#cấu-hình)
-5. [Chạy Ứng Dụng](#chạy-ứng-dụng)
-6. [Sử Dụng](#sử-dụng)
-7. [Kiến Trúc](#kiến-trúc)
-8. [API Documentation](#api-documentation)
+3. [Kiến Trúc](#kiến-trúc)
+4. [API Documentation](#api-documentation)
 
 ---
 
@@ -151,33 +179,33 @@ ip,asset_name,description,is_protected,is_authorized_attacker
 
 ## 🚀 Chạy Ứng Dụng
 
-### Chạy Tất Cả Services (Khuyến nghị)
+### Chạy Full Stack (Khuyến nghị)
 ```bash
-python run_all_services.py
+python run_fullstack.py
 ```
 
 Services sẽ chạy trên:
 - **Frontend**: http://localhost:3000
-- **Backend API**: http://127.0.0.1:8000
-- **API Docs**: http://127.0.0.1:8000/docs
-- **RAG Server**: http://127.0.0.1:8001
+- **Backend API**: http://localhost:8888
+- **Unified MCP Server**: http://localhost:8001
+- **API Docs**: http://localhost:8888/docs
 
 ### Chạy Riêng Lẻ
 
-#### Backend Only
+#### MCP Server
+```bash
+python run_mcp_server.py
+```
+
+#### Backend API
 ```bash
 python run_backend.py
 ```
 
-#### Frontend Only
+#### Frontend
 ```bash
 cd frontend
 npm run dev
-```
-
-#### RAG Server Only
-```bash
-python mcp_server/rag_server_http.py
 ```
 
 ---
@@ -216,14 +244,14 @@ Gõ các câu hỏi tự nhiên:
 
 #### Phân Tích File
 ```bash
-curl -X POST http://127.0.0.1:8000/analyze-file \
+curl -X POST http://127.0.0.1:8888/analyze-file \
   -F "file=@access.log" \
   -F "query=Phân tích file này"
 ```
 
 #### Smart Query
 ```bash
-curl -X POST http://127.0.0.1:8000/smart-analyze \
+curl -X POST http://127.0.0.1:8888/smart-analyze \
   -H "Content-Type: application/json" \
   -d '{
     "query": "Phân tích logs trong 24h qua",
@@ -233,7 +261,7 @@ curl -X POST http://127.0.0.1:8000/smart-analyze \
 
 #### Check IP Reputation
 ```bash
-curl -X POST http://127.0.0.1:8000/smart-analyze \
+curl -X POST http://127.0.0.1:8888/smart-analyze \
   -H "Content-Type: application/json" \
   -d '{
     "query": "Check IP 103.232.122.33"
@@ -256,40 +284,36 @@ python cron_log_analyzer.py
 
 ## 🏗️ Kiến Trúc
 
-### Backend Structure
+### Project Structure
 ```
-backend/
-├── agents/              # LLM Agents
-│   ├── analyze_agent.py      # Phát hiện tấn công
-│   ├── ti_agent.py            # Threat intelligence
-│   ├── recommend_agent.py     # Khuyến nghị
-│   ├── report_agent.py        # Tạo báo cáo
-│   ├── genrule_agent.py       # Tạo detection rules
-│   ├── queryrag_agent.py      # Query knowledge base
-│   ├── query_agent.py         # Parse user queries
-│   └── supervisor_agent.py    # Job classification
-├── nodes/               # LangGraph Nodes
-│   ├── agent_nodes.py         # Agent execution nodes
-│   ├── io_nodes.py            # Input/output nodes
-│   ├── supervisor_nodes.py    # Supervisor nodes
-│   └── processing_nodes.py    # Data processing nodes
-├── utils/               # Utilities
-│   ├── llm_factory.py         # LLM initialization
-│   ├── time_parser.py         # Time parsing
-│   ├── exporter.py            # CSV export
-│   ├── pdf_generator.py       # PDF generation
-│   └── ti_cache.py            # TI caching
-├── services/            # Services
-│   ├── asset_manager.py       # Asset management
-│   ├── telegram_notifier.py   # Telegram alerts
-│   ├── cron_scheduler.py      # Cron scheduling
-│   └── aggregated_statistics.py
-├── main.py              # FastAPI app
-├── analyzer.py          # Analysis orchestrator
-├── graph_builder.py     # LangGraph workflow
-├── routing.py           # Workflow routing
-├── models.py            # Data models
-└── config.py            # Configuration
+mcpllm/
+├── 📁 backend/              # FastAPI Backend
+│   ├── agents/              # AI Agents
+│   ├── services/            # Business Services  
+│   ├── nodes/               # LangGraph Nodes
+│   ├── utils/               # Utilities
+│   ├── main.py              # FastAPI App
+│   └── config.py            # Configuration
+├── 📁 frontend/             # React Frontend
+│   ├── src/                 # Source code
+│   └── package.json         # Dependencies
+├── 📁 mcp_server/           # MCP Server
+│   └── unified_server.py    # Log + RAG Server
+├── 📁 scripts/              # Deployment Scripts
+│   ├── test_local_setup.py  # Setup validation
+│   ├── setup_production.sh  # Production setup
+│   ├── setup_services.sh    # Service setup
+│   ├── start_all.sh         # Start all services
+│   └── test_mcp.sh          # Test deployment
+├── run_fullstack.py         # Local development
+├── run_backend.py           # Backend only
+├── run_mcp_server.py        # MCP server only
+├── 📁 output/               # Analysis results
+├── 📁 KB/                   # Knowledge base
+├── 📁 fonts/                # PDF fonts
+├── .env.example             # Environment template
+├── requirements.txt         # Python deps
+└── README.md                # This file
 ```
 
 ### Workflow
@@ -423,9 +447,74 @@ python kill_port_8000.py
 
 Nếu gặp vấn đề:
 1. Kiểm tra logs trong terminal
-2. Xem API docs: http://127.0.0.1:8000/docs
+2. Xem API docs: http://127.0.0.1:8888/docs
 3. Review `.env` configuration
 4. Check system requirements
+
+## 🚀 Production Deployment
+
+### Yêu cầu Server
+- **OS**: Ubuntu 20.04+ / CentOS 7+
+- **RAM**: 8GB+ (16GB recommended)
+- **CPU**: 4+ cores
+- **Storage**: 50GB+ free space
+- **Network**: Internet connection
+
+### Cài đặt Production
+
+**📖 Xem hướng dẫn chi tiết tại: [DEPLOYMENT.md](DEPLOYMENT.md)**
+
+#### Option 1: Automated Setup
+```bash
+# Clone và setup tự động
+git clone <repository-url>
+cd MCPLLM
+bash scripts/setup_production.sh
+```
+
+#### Option 2: Manual Setup
+```bash
+# 1. Setup environment
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+
+# 2. Configure
+cp .env.example .env
+# Edit .env với API keys
+
+# 3. Build frontend
+cd frontend && npm install && npm run build && cd ..
+
+# 4. Setup services
+sudo bash scripts/setup_services.sh
+sudo bash scripts/setup_nginx.sh
+
+# 5. Start services
+sudo systemctl start mcpllm-backend mcpllm-mcp
+sudo systemctl enable mcpllm-backend mcpllm-mcp
+```
+
+#### Monitoring
+```bash
+# Check services
+sudo systemctl status mcpllm-backend
+sudo systemctl status mcpllm-mcp
+
+# View logs
+sudo journalctl -u mcpllm-backend -f
+sudo journalctl -u mcpllm-mcp -f
+
+# Health checks
+curl http://localhost:8888/health
+curl http://localhost:8001/health
+```
+
+### URLs sau khi deploy
+- **Frontend**: http://your-server-ip
+- **Backend API**: http://your-server-ip:8888
+- **MCP Server**: http://your-server-ip:8001
+- **API Docs**: http://your-server-ip:8888/docs
 
 ---
 

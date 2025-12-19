@@ -14,7 +14,7 @@ const CronScheduler = () => {
 
   const fetchStatus = async () => {
     try {
-      const response = await fetch('http://127.0.0.1:8000/cron/status');
+      const response = await fetch('http://127.0.0.1:8888/cron/status');
       const data = await response.json();
       setStatus(data);
       setIsRunning(data.is_running);
@@ -29,7 +29,7 @@ const CronScheduler = () => {
 
     try {
       const endpoint = isRunning ? '/cron/stop' : '/cron/start';
-      const response = await fetch(`http://127.0.0.1:8000${endpoint}`, {
+      const response = await fetch(`http://127.0.0.1:8888${endpoint}`, {
         method: 'POST',
       });
 
@@ -67,7 +67,7 @@ const CronScheduler = () => {
 
       <div className="cron-body">
         <p className="cron-description">
-          Automatically analyze logs every 5 minutes with sliding window detection.
+          Automatically analyze logs every 5 minutes with real-time monitoring.
           Telegram alerts sent only when attacks are detected.
         </p>
 
@@ -114,7 +114,7 @@ const CronScheduler = () => {
         <div className="cron-info">
           <div className="info-item">
             <span className="info-icon">📊</span>
-            <span className="info-text">Analyzes logs from 7 hours ago</span>
+            <span className="info-text">Analyzes logs from last 5 minutes</span>
           </div>
           <div className="info-item">
             <span className="info-icon">🔔</span>

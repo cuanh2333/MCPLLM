@@ -35,7 +35,7 @@ Frontend sẽ chạy tại: http://localhost:3000
 python run_backend.py
 ```
 
-Backend API sẽ chạy tại: http://localhost:8000
+Backend API sẽ chạy tại: http://localhost:8888
 
 ## Sử dụng
 
@@ -115,7 +115,7 @@ Output sẽ ở thư mục `dist/`
 Đảm bảo backend có CORS middleware enabled (đã có sẵn trong backend/main.py)
 
 ### API connection failed
-Kiểm tra backend đang chạy tại http://localhost:8000
+Kiểm tra backend đang chạy tại http://localhost:8888
 
 ### File upload failed
 Kiểm tra file size và format (.log, .txt, .csv, .pdf)

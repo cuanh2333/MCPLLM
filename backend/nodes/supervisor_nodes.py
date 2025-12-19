@@ -88,8 +88,8 @@ async def supervisor_pre_node(state: Dict[str, Any]) -> Dict[str, Any]:
                 
                 # Get Splunk config from environment or use defaults
                 import os
-                splunk_index = os.getenv("SPLUNK_INDEX", "web_iis")
-                splunk_sourcetype = os.getenv("SPLUNK_SOURCETYPE", "modsec:dvwa")
+                splunk_index = os.getenv("SPLUNK_INDEX", "hf")
+                splunk_sourcetype = os.getenv("SPLUNK_SOURCETYPE", "win_log")
                 
                 state["log_source"] = {
                     "type": "splunk",
@@ -196,9 +196,9 @@ async def supervisor_post_node(state: Dict[str, Any]) -> Dict[str, Any]:
         state["need_report"] = True
     
     else:
-        # Low/medium → disable TI
-        logger.info(f"  Low/medium severity ({findings['severity_level']}) → disabling TI")
-        state["need_ti"] = False
+        # Low/medium → still enable TI for IP reputation check
+        logger.info(f"  Low/medium severity ({findings['severity_level']}) → enabling TI for IP reputation")
+        state["need_ti"] = True
         state["need_recommend"] = True
         state["need_report"] = True
     

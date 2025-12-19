@@ -25,7 +25,7 @@ from backend.config import settings
 def main():
     """Run the backend API server."""
     host = "127.0.0.1"
-    port = 8000
+    port = 8888
     
     print("\nStarting V1 Log Analyzer Backend...")
     print(f"Host: {host}")

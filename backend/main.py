@@ -348,8 +348,8 @@ class SmartQueryRequest(BaseModel):
         send_telegram: Optional flag to send Telegram notification (default: False)
                       Note: Cron jobs automatically send Telegram regardless of this flag
         source_label: Optional label to identify source (cron/user/api)
-        earliest_time: Optional custom earliest time for Splunk (e.g., "-7h-5m")
-        latest_time: Optional custom latest time for Splunk (e.g., "-7h")
+        earliest_time: Optional custom earliest time for Splunk (e.g., "-5m")
+        latest_time: Optional custom latest time for Splunk (e.g., "now")
     """
     query: str = Field(
         ...,
@@ -370,11 +370,11 @@ class SmartQueryRequest(BaseModel):
     )
     earliest_time: Optional[str] = Field(
         None,
-        description="Custom earliest time for Splunk query (e.g., '-7h-5m', '-1d@d')"
+        description="Custom earliest time for Splunk query (e.g., '-5m', '-1h', '-1d@d')"
     )
     latest_time: Optional[str] = Field(
         None,
-        description="Custom latest time for Splunk query (e.g., '-7h', 'now')"
+        description="Custom latest time for Splunk query (e.g., 'now', '-5m')"
     )
     
     class Config:
@@ -383,8 +383,8 @@ class SmartQueryRequest(BaseModel):
                 "query": "1 giờ qua có tấn công SQL injection không?",
                 "default_source": None,
                 "send_telegram": False,
-                "earliest_time": "-7h-5m",
-                "latest_time": "-7h"
+                "earliest_time": "-5m",
+                "latest_time": "now"
             }
         }
 
@@ -564,8 +564,8 @@ async def smart_analyze(request: SmartQueryRequest):
         
         # Override index and sourcetype with values from .env
         if parsed['log_source'] and parsed['log_source'].get('type') == 'splunk':
-            env_index = os.getenv('SPLUNK_INDEX', 'web_iis')
-            env_sourcetype = os.getenv('SPLUNK_SOURCETYPE', 'modsec:dvwa')
+            env_index = os.getenv('SPLUNK_INDEX', 'hf')
+            env_sourcetype = os.getenv('SPLUNK_SOURCETYPE', 'win_log')
             
             # Override if LLM generated different values
             if parsed['log_source'].get('index') != env_index or parsed['log_source'].get('sourcetype') != env_sourcetype:
@@ -577,7 +577,7 @@ async def smart_analyze(request: SmartQueryRequest):
             if request.source_label == 'cron':
                 parsed['log_source']['type'] = 'cron_splunk'
                 parsed['source_type'] = 'cron_splunk'
-                logger.info("Converted source_type to 'cron_splunk' for cron job (will use default time range: -7h-5m to -7h)")
+                logger.info("Converted source_type to 'cron_splunk' for cron job (will use default time range: -5m to now)")
         
         # Get enable_genrule from QueryAgent (auto-detected from query)
         enable_genrule = parsed.get('enable_genrule', False)
@@ -1107,7 +1107,7 @@ async def get_statistics(report: str = "latest", source: str = "all"):
         })
         total_attack_events = 0
         
-        with open(latest_csv, 'r', encoding='utf-8') as f:
+        with open(latest_csv, 'r', encoding='utf-8-sig') as f:
             reader = csv.DictReader(f)
             for row in reader:
                 total_attack_events += 1
@@ -1322,7 +1322,7 @@ async def start_cron():
     Start the automated cron scheduler.
     
     Starts background task that runs log analysis every 5 minutes
-    with sliding window (earliest=-7h-5m, latest=-7h).
+    with real-time monitoring (earliest=-5m, latest=now).
     
     Sends Telegram notification only if attacks are detected.
     
@@ -1374,6 +1374,32 @@ async def stop_cron():
             }
     except Exception as e:
         logger.error(f"Failed to stop cron scheduler: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/cron/reload")
+async def reload_cron_config():
+    """
+    Reload cron scheduler configuration from environment variables.
+    
+    Returns:
+        Updated configuration
+    """
+    try:
+        scheduler = get_scheduler()
+        scheduler.reload_config()
+        
+        return {
+            "status": "reloaded",
+            "message": "Configuration reloaded successfully",
+            "config": {
+                "earliest_time": scheduler.earliest_time,
+                "latest_time": scheduler.latest_time,
+                "interval_minutes": scheduler.interval_minutes
+            }
+        }
+    except Exception as e:
+        logger.error(f"Failed to reload cron config: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
