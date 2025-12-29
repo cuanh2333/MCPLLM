@@ -7,6 +7,7 @@ This agent queries OWASP/MITRE/Sigma knowledge base via unified MCP server.
 import json
 import logging
 from typing import Optional
+from pathlib import Path
 from backend.utils.llm_factory import create_llm
 from backend.config import settings
 from backend.services.unified_mcp_client import get_unified_client
@@ -33,6 +34,10 @@ class QueryRAGAgent:
             temperature=temperature
         )
         self.mcp_client = get_unified_client()
+        
+        # Use AssetManager for asset queries
+        from backend.services.asset_manager import get_asset_manager
+        self.asset_manager = get_asset_manager()
     
     async def query_knowledge(
         self,
@@ -72,6 +77,20 @@ class QueryRAGAgent:
             
             if category:
                 logger.info(f"  Category filter: {category}")
+            
+            # SPECIAL CASE: For asset category, query asset_db.json directly
+            if category == "asset":
+                logger.info("  Asset query → checking asset_db.json via AssetManager")
+                asset_answer = self._query_asset_db(user_query)
+                if asset_answer:
+                    total_time = time.time() - start_time
+                    logger.info(f"QueryRAGAgent: Asset query answered from asset_db.json (total: {total_time:.2f}s)")
+                    return {
+                        'answer': asset_answer,
+                        'sources': [{'source': 'asset_db.json', 'category': 'asset'}]
+                    }
+                # If no match in asset_db, fall through to RAG search
+                logger.info("  No match in asset_db.json, falling back to RAG search")
             
             # Enhance query with English keywords if needed
             t1 = time.time()
@@ -173,7 +192,8 @@ class QueryRAGAgent:
             'production server', 'staging server',
             'database server', 'web server',
             'internal ip', 'ip nội bộ',
-            'hostname', 'domain'
+            'hostname', 'domain',
+            'pentest', 'pen test', 'penetration test'
         ]
         
         # Sigma/Detection rule keywords
@@ -196,6 +216,94 @@ class QueryRAGAgent:
         
         return None
     
+    def _query_asset_db(self, user_query: str) -> Optional[str]:
+        """
+        Query asset_db.json for asset information using AssetManager.
+        
+        Handles queries like:
+        - "IP pentest của hệ thống gồm những gì"
+        - "Thông tin về IP 192.168.1.100"
+        - "Các server trong hệ thống"
+        
+        Returns:
+            Formatted answer string or None if no match
+        """
+        import re
+        query_lower = user_query.lower()
+        
+        # Extract IP from query if present
+        ip_pattern = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+        ip_match = re.search(ip_pattern, user_query)
+        
+        # Case 1: Query about specific IP
+        if ip_match:
+            ip = ip_match.group(0)
+            asset_info = self.asset_manager.get_asset_info(ip)
+            if asset_info:
+                return self._format_asset_info(ip, asset_info)
+            else:
+                return f"❌ Không tìm thấy thông tin về IP `{ip}` trong cơ sở dữ liệu asset."
+        
+        # Case 2: Query about pentest IPs
+        if any(kw in query_lower for kw in ['pentest', 'pen test', 'penetration test', 'authorized attacker', 'ip test']):
+            summary = self.asset_manager.get_summary()
+            pentest_ips = summary.get('pentest_ips', [])
+            if pentest_ips:
+                answer = "🔍 **IP Pentest của Hệ Thống**\n\n"
+                for ip in pentest_ips:
+                    asset_info = self.asset_manager.get_asset_info(ip)
+                    answer += self._format_asset_info(ip, asset_info) + "\n\n"
+                return answer.strip()
+            else:
+                return "❌ Không tìm thấy IP pentest trong hệ thống."
+        
+        # Case 3: Query about servers
+        if any(kw in query_lower for kw in ['server', 'máy chủ', 'protected asset']):
+            summary = self.asset_manager.get_summary()
+            protected_assets = summary.get('protected_assets', [])
+            if protected_assets:
+                answer = "🖥️ **Các Server trong Hệ Thống**\n\n"
+                for ip in protected_assets:
+                    asset_info = self.asset_manager.get_asset_info(ip)
+                    answer += self._format_asset_info(ip, asset_info) + "\n\n"
+                return answer.strip()
+            else:
+                return "❌ Không tìm thấy server trong hệ thống."
+        
+        # Case 4: General asset list
+        if any(kw in query_lower for kw in ['tất cả', 'all', 'danh sách', 'list']):
+            summary = self.asset_manager.get_summary()
+            answer = f"📋 **Tổng Quan Asset Hệ Thống**\n\n"
+            answer += f"- Tổng số assets: {summary['total_assets']}\n"
+            answer += f"- Tổng số domains: {summary['total_domains']}\n\n"
+            
+            if summary['protected_assets']:
+                answer += f"**Protected Assets ({len(summary['protected_assets'])}):**\n"
+                for ip in summary['protected_assets']:
+                    answer += f"- {ip}\n"
+                answer += "\n"
+            
+            if summary['pentest_ips']:
+                answer += f"**Pentest IPs ({len(summary['pentest_ips'])}):**\n"
+                for ip in summary['pentest_ips']:
+                    answer += f"- {ip}\n"
+            
+            return answer.strip()
+        
+        return None
+    
+    def _format_asset_info(self, ip: str, asset: dict) -> str:
+        """Format asset information for display."""
+        answer = f"**{ip}**\n"
+        answer += f"- **Loại:** {asset.get('type', 'N/A')}\n"
+        answer += f"- **Nhãn:** {asset.get('label', 'N/A')}\n"
+        answer += f"- **Mô tả:** {asset.get('description', 'N/A')}\n"
+        
+        if asset.get('note'):
+            answer += f"- **Ghi chú:** {asset['note']}\n"
+        
+        return answer.strip()
+    
     async def _enhance_query_with_keywords(self, user_query: str) -> str:
         """
         Enhance query with English keywords for better RAG matching.
@@ -203,9 +311,9 @@ class QueryRAGAgent:
         RAG KB is in English, so we extract/translate key terms.
         
         Examples:
-        - "SQL injection là gì?" → "SQL injection SQLi what is definition"
-        - "Làm thế nào để phòng chống XSS" → "XSS cross-site scripting prevention mitigation defense how to prevent"
-        - "IP nghiệp vụ là gì?" → "business IP asset infrastructure"
+        - "SQL injection là gì?" -> "SQL injection SQLi what is definition"
+        - "Làm thế nào để phòng chống XSS" -> "XSS cross-site scripting prevention mitigation defense how to prevent"
+        - "IP nghiệp vụ là gì?" -> "business IP asset infrastructure"
         """
         query_lower = user_query.lower()
         

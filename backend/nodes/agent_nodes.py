@@ -103,39 +103,77 @@ async def ti_node(state: Dict[str, Any]) -> Dict[str, Any]:
             
             logger.info(f"[ti] IP reputation query for {len(ips)} IPs")
             
-            # Create TI agent
-            ti_llm = create_ti_agent_llm()
-            ti_agent = TIAgent(ti_llm, settings.mcp_server_path)
-            
-            # Run TI analysis directly on IPs (no need for fake events!)
-            ti_summary = await ti_agent.analyze_ips(ips)
-            
-            # Enrich with asset info if available
+            # STEP 1: Check asset info FIRST (independent of TI)
+            asset_info_map = {}
             try:
                 from backend.services.asset_ip_lookup import get_asset_lookup
                 asset_lookup = get_asset_lookup()
                 
-                # Enrich each IOC with asset info
-                for ioc in ti_summary.get('iocs', []):
-                    ip = ioc.get('ip')
-                    if ip:
-                        enriched = asset_lookup.enrich_ip_info(ip, ioc)
-                        ioc['asset_info'] = enriched.get('asset_info')
-                        ioc['is_internal'] = enriched.get('is_internal')
-                        ioc['is_protected'] = enriched.get('is_protected')
-                        ioc['is_authorized_attacker'] = enriched.get('is_authorized_attacker')
-                        
-                        # Add asset context to notes
-                        if enriched.get('asset_info'):
-                            asset = enriched['asset_info']
-                            asset_note = f"\n🏢 Internal Asset: {asset.get('hostname')} ({asset.get('label')})"
-                            if asset.get('description'):
-                                asset_note += f"\n📝 {asset['description']}"
-                            ioc['notes'] = (ioc.get('notes', '') + asset_note).strip()
+                for ip in ips:
+                    enriched = asset_lookup.enrich_ip_info(ip, {})
+                    if enriched.get('asset_info'):
+                        asset_info_map[ip] = enriched
+                        logger.info(f"[ti] Found asset info for {ip}: {enriched['asset_info'].get('hostname')}")
                 
-                logger.info(f"[ti] Enriched {len(ti_summary.get('iocs', []))} IPs with asset info")
+                logger.info(f"[ti] Found asset info for {len(asset_info_map)}/{len(ips)} IPs")
             except Exception as e:
-                logger.warning(f"[ti] Failed to enrich with asset info: {e}")
+                logger.warning(f"[ti] Failed to lookup asset info: {e}")
+            
+            # STEP 2: Run TI analysis
+            ti_llm = create_ti_agent_llm()
+            ti_agent = TIAgent(ti_llm, settings.mcp_server_path)
+            ti_summary = await ti_agent.analyze_ips(ips)
+            
+            # STEP 3: Enrich TI results with asset info
+            # If TI parsing failed and iocs is empty, create basic iocs from IPs
+            if not ti_summary.get('iocs'):
+                logger.warning(f"[ti] TI summary has no IOCs, creating basic entries for {len(ips)} IPs")
+                ti_summary['iocs'] = [{'ip': ip, 'risk': 'unknown', 'notes': 'TI analysis failed'} for ip in ips]
+            
+            # Enrich each IOC with asset info
+            for ioc in ti_summary.get('iocs', []):
+                ip = ioc.get('ip')
+                if ip and ip in asset_info_map:
+                    enriched = asset_info_map[ip]
+                    ioc['asset_info'] = enriched.get('asset_info')
+                    ioc['is_internal'] = enriched.get('is_internal')
+                    ioc['is_protected'] = enriched.get('is_protected')
+                    ioc['is_authorized_attacker'] = enriched.get('is_authorized_attacker')
+                    
+                    # Special handling for authorized attackers (pentest)
+                    if enriched.get('is_authorized_attacker'):
+                        logger.info(f"[ti] {ip} is AUTHORIZED ATTACKER (pentest machine)")
+                        ioc['risk'] = 'informational'
+                        ioc['notes'] = f"⚠️ ĐÂY LÀ MÁY PENTEST HỢP LỆ - KHÔNG PHẢI TẤN CÔNG THẬT\n\n{ioc.get('notes', '')}"
+                    
+                    # Add asset context to notes
+                    asset = enriched['asset_info']
+                    asset_note = f"\n\n🏢 Tài sản nội bộ: {asset.get('hostname')} ({asset.get('label')})"
+                    if asset.get('description'):
+                        asset_note += f"\n📝 {asset['description']}"
+                    if asset.get('owner'):
+                        asset_note += f"\n👤 Chủ sở hữu: {asset['owner']}"
+                    if asset.get('location'):
+                        asset_note += f"\n📍 Vị trí: {asset['location']}"
+                    
+                    # Add severity context
+                    if asset.get('severity_if_source'):
+                        asset_note += f"\n⚠️ Mức độ nghiêm trọng (nếu là nguồn tấn công): {asset['severity_if_source']}"
+                    
+                    ioc['notes'] = (ioc.get('notes', '') + asset_note).strip()
+            
+            # Update ti_overall if all IPs are authorized attackers
+            authorized_count = sum(1 for ioc in ti_summary.get('iocs', []) if ioc.get('is_authorized_attacker'))
+            if authorized_count == len(ti_summary.get('iocs', [])):
+                logger.info(f"[ti] All {authorized_count} IPs are authorized attackers (pentest)")
+                ti_summary['ti_overall']['max_risk'] = 'informational'
+                ti_summary['ti_overall']['notes'] = f"Tất cả {authorized_count} IP đều là máy pentest hợp lệ (AUTHORIZED_ATTACKER). Đây là hoạt động kiểm thử bảo mật được ủy quyền, không phải tấn công thật."
+            elif authorized_count > 0:
+                logger.info(f"[ti] {authorized_count}/{len(ti_summary.get('iocs', []))} IPs are authorized attackers")
+                ti_summary['ti_overall']['notes'] = (ti_summary['ti_overall'].get('notes', '') + 
+                    f"\n\n⚠️ Lưu ý: {authorized_count} IP là máy pentest hợp lệ (AUTHORIZED_ATTACKER)").strip()
+            
+            logger.info(f"[ti] Enriched {len([ioc for ioc in ti_summary.get('iocs', []) if ioc.get('asset_info')])} IPs with asset info")
             
             state["ti_summary"] = ti_summary
             state["ti_done"] = True

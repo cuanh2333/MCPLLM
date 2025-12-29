@@ -8,6 +8,7 @@ to manage LLM context limits and API efficiency.
 
 import json
 import logging
+import os
 import re
 from typing import Any
 
@@ -31,8 +32,6 @@ class LLMAnalyzer:
     Requirements: 3.1, 3.2, 3.3, 3.4
     """
     
-    CHUNK_SIZE = 50
-    
     def __init__(self, llm: ChatGroq):
         """
         Initialize LLMAnalyzer with ChatGroq LLM instance.
@@ -43,7 +42,9 @@ class LLMAnalyzer:
         Requirements: 3.2
         """
         self.llm = llm
-        logger.info(f"LLMAnalyzer initialized with chunk size: {self.CHUNK_SIZE}")
+        # Read chunk size from environment variable
+        self.chunk_size = int(os.getenv('LLM_CHUNK_SIZE', '100'))
+        logger.info(f"LLMAnalyzer initialized with chunk size: {self.chunk_size}")
     
     async def analyze_events(self, events: list[Event], user_query: str = "") -> dict[str, EventLabel]:
         """
@@ -64,7 +65,7 @@ class LLMAnalyzer:
         Requirements: 3.1, 3.2, 3.3, 3.4, V2-R1
         """
         all_labels = {}
-        chunks = self._chunk_events(events, self.CHUNK_SIZE)
+        chunks = self._chunk_events(events, self.chunk_size)
         
         logger.info(f"Analyzing {len(events)} events in {len(chunks)} chunks")
         if user_query:
@@ -82,6 +83,23 @@ class LLMAnalyzer:
                 
                 # Parse response
                 labels = self._parse_response(response.content)
+                
+                # Validate: ensure all events in chunk are classified
+                missing_events = []
+                for event in chunk:
+                    if event['event_id'] not in labels:
+                        missing_events.append(event['event_id'])
+                        # Mark missing events as benign with low confidence
+                        labels[event['event_id']] = EventLabel(
+                            is_attack=False,
+                            attack_type='benign',
+                            short_note='Not classified by LLM (marked as benign)',
+                            mitre_technique=None,
+                            confidence=0.3
+                        )
+                
+                if missing_events:
+                    logger.warning(f"Chunk {i}: LLM did not classify {len(missing_events)} events, marked as benign: {missing_events[:5]}")
                 
                 # Update all_labels
                 all_labels.update(labels)
@@ -215,8 +233,12 @@ ANALYSIS RULES:
 7. POST file uploads with suspicious extensions (.php, .jsp, .exe) = rce
 
 OUTPUT FORMAT (V2 Extended):
-CRITICAL: Return ONLY pure JSON, no markdown, no code blocks, no explanations.
-Start directly with { and end with }
+CRITICAL REQUIREMENTS:
+1. Return ONLY pure JSON, no markdown, no code blocks, no explanations
+2. Start directly with { and end with }
+3. YOU MUST CLASSIFY ALL EVENTS - Do not skip any event_id
+4. If unsure, mark as benign with low confidence
+5. Every event_id in the input MUST appear in the output
 
 {
   "results": [
@@ -240,6 +262,7 @@ Start directly with { and end with }
 }
 
 DO NOT wrap in markdown code blocks. Return pure JSON only.
+REMEMBER: Classify ALL events, including benign ones!
 
 MITRE ATT&CK Techniques (chọn technique phù hợp nhất):
 - T1190: Exploit Public-Facing Application (SQLi, XSS, RCE, XXE - tấn công ứng dụng web)

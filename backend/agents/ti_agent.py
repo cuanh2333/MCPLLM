@@ -188,7 +188,8 @@ class TIAgent:
         for ip in ips[:10]:  # Limit to 10 IPs
             cached = ti_cache.get(ip)
             if cached:
-                logger.info(f"Using cached TI data for {ip}")
+                logger.info(f"✅ Using cached TI data for {ip}")
+                logger.debug(f"   Cached data: {str(cached)[:200]}...")
                 ti_data.append(cached)
             else:
                 ips_to_fetch.append(ip)
@@ -198,12 +199,12 @@ class TIAgent:
             logger.info(f"All {len(ips[:10])} IPs found in cache")
             return ti_data
         
-        logger.info(f"Fetching TI data for {len(ips_to_fetch)} new IPs (cached: {len(ti_data)})")
+        logger.info(f"🔍 Fetching TI data for {len(ips_to_fetch)} new IPs (cached: {len(ti_data)})")
         
         try:
             # Check each IP that's not in cache using unified MCP client
             for ip in ips_to_fetch:
-                logger.info(f"Checking IP: {ip}")
+                logger.info(f"🌐 Checking IP: {ip}")
                 
                 ip_data = {
                     "ip": ip,
@@ -213,26 +214,26 @@ class TIAgent:
                 
                 # Try AbuseIPDB
                 try:
+                    logger.info(f"   → Calling AbuseIPDB for {ip}...")
                     abuseipdb_result = await self.mcp_client.abuseipdb_check(ip)
                     if abuseipdb_result:
+                        logger.info(f"   ✅ AbuseIPDB response: {str(abuseipdb_result)[:200]}...")
                         ip_data["abuseipdb"] = str(abuseipdb_result)
+                    else:
+                        logger.warning(f"   ⚠️ AbuseIPDB returned None for {ip}")
                 except Exception as e:
-                    logger.warning(f"AbuseIPDB check failed for {ip}: {e}")
+                    logger.error(f"   ❌ AbuseIPDB check failed for {ip}: {e}", exc_info=True)
                 
-                # Try VirusTotal
-                try:
-                    vt_result = await self.mcp_client.virustotal_ip(ip)
-                    if vt_result:
-                        ip_data["virustotal"] = str(vt_result)
-                except Exception as e:
-                    logger.warning(f"VirusTotal check failed for {ip}: {e}")
+                # Skip VirusTotal (not needed + API issues)
+                # VirusTotal often returns 403 errors and is not essential for IP reputation
                 
                 # Cache the result
+                logger.info(f"💾 Caching TI data for {ip}")
                 ti_cache.set(ip, ip_data)
                 ti_data.append(ip_data)
         
         except Exception as e:
-            logger.error(f"Failed to fetch TI data: {e}")
+            logger.error(f"Failed to fetch TI data: {e}", exc_info=True)
             # Return empty data on failure for IPs not yet fetched
             for ip in ips_to_fetch:
                 ti_data.append({
@@ -242,7 +243,7 @@ class TIAgent:
                     "error": str(e)
                 })
         
-        logger.info(f"[TIAgent] Fetched TI data for {len(ti_data)} IPs")
+        logger.info(f"[TIAgent] Fetched TI data for {len(ti_data)} IPs total")
         return ti_data
     
     async def _analyze_with_llm(self, ti_raw: list[dict]) -> TISummary:
@@ -255,61 +256,184 @@ class TIAgent:
         Returns:
             TISummary with analysis results
         """
+        # Log raw TI data
+        logger.info("=" * 80)
+        logger.info("📊 RAW TI DATA TO ANALYZE:")
+        for item in ti_raw:
+            logger.info(f"  IP: {item.get('ip')}")
+            logger.info(f"    AbuseIPDB: {str(item.get('abuseipdb'))[:300] if item.get('abuseipdb') else 'None'}")
+            logger.info(f"    VirusTotal: {str(item.get('virustotal'))[:300] if item.get('virustotal') else 'None'}")
+        logger.info("=" * 80)
+        
         prompt = self._create_prompt(ti_raw)
         
+        # Log prompt
+        logger.info("📝 LLM PROMPT:")
+        logger.info(prompt)
+        logger.info("=" * 80)
+        
         try:
+            logger.info("🤖 Calling LLM for TI analysis...")
             response = await self.llm.ainvoke([HumanMessage(content=prompt)])
+            
+            # Log full response
+            logger.info("📨 LLM RESPONSE:")
+            logger.info(f"Response type: {type(response.content)}")
+            logger.info(f"Response length: {len(response.content)} chars")
+            logger.info(f"Response content:\n{response.content}")
+            logger.info("=" * 80)
+            
             ti_summary = self._parse_response(response.content)
+            
+            # Log parsed result
+            logger.info("✅ PARSED TI SUMMARY:")
+            logger.info(f"  IOCs count: {len(ti_summary.get('iocs', []))}")
+            logger.info(f"  Max risk: {ti_summary.get('ti_overall', {}).get('max_risk')}")
+            logger.info("=" * 80)
+            
+            # If parsing succeeded but returned empty iocs, create fallback
+            if not ti_summary.get('iocs') and ti_raw:
+                logger.warning("⚠️ LLM returned empty iocs, creating fallback from raw data")
+                ti_summary = self._create_fallback_summary(ti_raw)
+            
             return ti_summary
         
         except Exception as e:
-            logger.error(f"LLM analysis failed: {e}")
-            # Return default summary on failure
-            return TISummary(
-                iocs=[{"ip": item["ip"], "risk": "unknown"} for item in ti_raw],
-                ti_overall={
-                    "max_risk": "medium",
-                    "high_risk_iocs": [],
-                    "notes": f"TI analysis failed: {str(e)}"
-                }
-            )
+            logger.error(f"❌ LLM analysis failed: {e}", exc_info=True)
+            # Return fallback summary with raw data
+            return self._create_fallback_summary(ti_raw)
+    
+    def _create_fallback_summary(self, ti_raw: list[dict]) -> TISummary:
+        """
+        Create fallback summary from raw TI data when LLM fails.
+        
+        Args:
+            ti_raw: Raw TI data from MCP tools
+            
+        Returns:
+            TISummary with basic analysis
+        """
+        logger.info("[TIAgent] Creating fallback summary from raw TI data")
+        
+        iocs = []
+        high_risk_ips = []
+        max_risk = "low"
+        
+        for item in ti_raw:
+            ip = item.get('ip')
+            abuse_score = 0
+            total_reports = 0
+            risk = "unknown"
+            notes = []
+            
+            # Parse AbuseIPDB data
+            abuseipdb_data = item.get('abuseipdb')
+            if abuseipdb_data and isinstance(abuseipdb_data, str):
+                # Try to extract abuse score and total reports from string
+                import re
+                score_match = re.search(r'abuse_confidence_score["\s:]+(\d+)', abuseipdb_data)
+                if score_match:
+                    abuse_score = int(score_match.group(1))
+                
+                reports_match = re.search(r'total_reports["\s:]+(\d+)', abuseipdb_data)
+                if reports_match:
+                    total_reports = int(reports_match.group(1))
+                
+                # Extract country/ISP info
+                country_match = re.search(r'country_code["\s:]+["\']([A-Z]{2})["\']', abuseipdb_data)
+                isp_match = re.search(r'isp["\s:]+["\']([^"\']+)["\']', abuseipdb_data)
+                
+                if country_match or isp_match:
+                    country = country_match.group(1) if country_match else "Unknown"
+                    isp = isp_match.group(1) if isp_match else "Unknown"
+                    notes.append(f"Quốc gia: {country}, ISP: {isp}")
+            
+            # Determine risk level based on abuse_score AND total_reports
+            if abuse_score >= 80 or total_reports > 1000:
+                risk = "critical"
+                max_risk = "critical"
+                high_risk_ips.append(ip)
+            elif abuse_score >= 50 or total_reports >= 500:
+                risk = "high"
+                if max_risk not in ["critical"]:
+                    max_risk = "high"
+                high_risk_ips.append(ip)
+            elif abuse_score >= 20 or total_reports >= 100:
+                risk = "medium"
+                if max_risk not in ["critical", "high"]:
+                    max_risk = "medium"
+            else:
+                risk = "low"
+            
+            # Build notes
+            if abuse_score > 0:
+                notes.append(f"AbuseIPDB Score: {abuse_score}/100")
+            if total_reports > 0:
+                notes.append(f"Tổng báo cáo: {total_reports}")
+            if not notes:
+                notes.append("Không có dữ liệu threat intelligence")
+            
+            iocs.append({
+                'ip': ip,
+                'risk': risk,
+                'abuse_score': abuse_score,
+                'total_reports': total_reports,
+                'notes': " | ".join(notes)
+            })
+        
+        return TISummary(
+            iocs=iocs,
+            ti_overall={
+                "max_risk": max_risk,
+                "high_risk_iocs": high_risk_ips,
+                "notes": f"Phân tích {len(iocs)} IP (fallback mode - LLM parse failed)"
+            }
+        )
     
     def _create_prompt(self, ti_raw: list[dict]) -> str:
         """Create analysis prompt for LLM in Vietnamese."""
-        prompt = """Bạn là chuyên gia phân tích threat intelligence. Phân tích dữ liệu IOC từ AbuseIPDB và VirusTotal.
+        prompt = """Bạn là chuyên gia phân tích threat intelligence. Phân tích dữ liệu IOC từ AbuseIPDB.
 
 Đánh giá mức độ rủi ro cho mỗi IP dựa trên:
-- AbuseIPDB abuse confidence score (0-100)
-- VirusTotal detection ratio
-- Hoạt động độc hại đã báo cáo
+- AbuseIPDB abuse confidence score (0-100) - mức độ tin cậy IP độc hại
+- AbuseIPDB total_reports - số lần bị báo cáo (QUAN TRỌNG!)
 - Thông tin quốc gia/ISP
+- Usage type (Data Center/Hosting thường đáng ngờ)
+- Thời gian báo cáo gần nhất (last_reported_at)
 
 Phân loại rủi ro (QUAN TRỌNG - tuân thủ chính xác):
-- critical: Abuse score >= 80 HOẶC VT detections > 5
-- high: Abuse score 50-79 HOẶC VT detections 3-5
-- medium: Abuse score 20-49 HOẶC VT detections 1-2
-- low: Abuse score < 20 và không có VT detections
+- critical: Abuse score >= 80 HOẶC total_reports > 1000
+- high: Abuse score 50-79 HOẶC total_reports 500-1000
+- medium: Abuse score 20-49 HOẶC total_reports 100-499
+- low: Abuse score < 20 và total_reports < 100
+
+LƯU Ý QUAN TRỌNG:
+- total_reports > 100 → KHÔNG THỂ là "low" risk
+- total_reports > 500 → tối thiểu là "high" risk
+- Data Center/Web Hosting/Transit → thường là proxy/VPN/botnet
+- last_reported_at trong vài ngày gần đây → tăng mức độ nguy hiểm
+- Nếu abuse_score = 0 nhưng total_reports cao → vẫn đáng ngờ!
 
 ĐỊNH DẠNG OUTPUT:
 QUAN TRỌNG: Trả về CHÍNH XÁC pure JSON, KHÔNG có markdown, KHÔNG có code blocks, KHÔNG có giải thích.
 Bắt đầu trực tiếp bằng { và kết thúc bằng }
 TẤT CẢ các trường "notes" PHẢI viết bằng TIẾNG VIỆT.
 
-Ví dụ (với notes tiếng Việt):
+Ví dụ:
 {
   "iocs": [
     {
-      "ip": "103.232.122.33",
-      "risk": "critical",
-      "abuse_score": 100,
-      "vt_detections": 0,
-      "notes": "IP độc hại cao, được báo cáo 712 lần cho hoạt động Data Center/Web Hosting/Transit từ VHOST CO., LTD tại Việt Nam"
+      "ip": "185.241.208.170",
+      "risk": "high",
+      "abuse_score": 0,
+      "total_reports": 563,
+      "notes": "IP đáng ngờ với 563 báo cáo từ AbuseIPDB (mặc dù confidence score = 0). Từ Data Center/Web Hosting tại Ba Lan (1337 Services GmbH). Báo cáo gần nhất: 2025-12-20. Khuyến nghị theo dõi và cân nhắc chặn."
     }
   ],
   "ti_overall": {
-    "max_risk": "critical",
-    "high_risk_iocs": ["103.232.122.33"],
-    "notes": "Phát hiện 1 IP có mức độ nguy hiểm cao (critical). Khuyến nghị chặn ngay lập tức."
+    "max_risk": "high",
+    "high_risk_iocs": ["185.241.208.170"],
+    "notes": "Phát hiện 1 IP có mức độ nguy hiểm cao với 563 báo cáo từ AbuseIPDB."
   }
 }
 
@@ -322,8 +446,6 @@ IOC Data:
             prompt += f"\n\nIP: {item['ip']}"
             if item.get('abuseipdb'):
                 prompt += f"\nAbuseIPDB: {item['abuseipdb']}"
-            if item.get('virustotal'):
-                prompt += f"\nVirusTotal: {item['virustotal']}"
             if item.get('error'):
                 prompt += f"\nError: {item['error']}"
         
@@ -333,6 +455,11 @@ IOC Data:
         """Parse LLM response into TISummary."""
         content = response_content.strip()
         
+        logger.info("🔍 PARSING LLM RESPONSE:")
+        logger.info(f"  Original length: {len(response_content)} chars")
+        logger.info(f"  After strip: {len(content)} chars")
+        logger.info(f"  First 100 chars: {content[:100]}")
+        
         # Handle markdown code blocks with various formats
         if '```json' in content:
             # Extract content between ```json and ```
@@ -340,17 +467,37 @@ IOC Data:
             end = content.find('```', start)
             if end != -1:
                 content = content[start:end]
+                logger.info(f"  Extracted from ```json block: {len(content)} chars")
         elif content.startswith('```'):
             content = content[3:]
             if content.endswith('```'):
                 content = content[:-3]
+            logger.info(f"  Removed ``` markers: {len(content)} chars")
         elif content.endswith('```'):
             content = content[:-3]
+            logger.info(f"  Removed trailing ```: {len(content)} chars")
         
         content = content.strip()
         
+        # Check if content is empty
+        if not content:
+            logger.error("❌ LLM returned EMPTY response after processing")
+            logger.error(f"   Original response_content: '{response_content}'")
+            return TISummary(
+                iocs=[],
+                ti_overall={
+                    "max_risk": "medium",
+                    "high_risk_iocs": [],
+                    "notes": "LLM returned empty response"
+                }
+            )
+        
+        logger.info(f"  Final content to parse ({len(content)} chars):")
+        logger.info(f"  {content[:500]}")
+        
         try:
             data = json.loads(content)
+            logger.info(f"✅ JSON parsed successfully: {len(data.get('iocs', []))} IOCs")
             return TISummary(
                 iocs=data.get('iocs', []),
                 ti_overall=data.get('ti_overall', {
@@ -360,7 +507,9 @@ IOC Data:
                 })
             )
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse TI response: {e}")
+            logger.error(f"❌ JSON PARSE ERROR: {e}")
+            logger.error(f"   Error at line {e.lineno}, column {e.colno}")
+            logger.error(f"   Content that failed (first 1000 chars):\n{content[:1000]}")
             return TISummary(
                 iocs=[],
                 ti_overall={

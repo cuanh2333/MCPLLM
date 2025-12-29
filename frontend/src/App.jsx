@@ -773,6 +773,9 @@ function AssistantResponse({ data }) {
                     <h5>🔍 Threat Intelligence:</h5>
                     <div className="ioc-details">
                       <p><strong>Abuse Score:</strong> {ioc.abuse_score !== null ? `${ioc.abuse_score}/100` : 'N/A'}</p>
+                      {ioc.total_reports !== undefined && ioc.total_reports !== null && (
+                        <p><strong>Total Reports:</strong> {ioc.total_reports}</p>
+                      )}
                       {ioc.country && <p><strong>Country:</strong> {ioc.country}</p>}
                       {ioc.usage_type && <p><strong>Usage Type:</strong> {ioc.usage_type}</p>}
                       {ioc.isp && <p><strong>ISP:</strong> {ioc.isp}</p>}

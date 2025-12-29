@@ -245,7 +245,7 @@ Tổng quan ngắn gọn về sự cố (2-3 đoạn văn)
 
 ## Phân Tích Tấn Công
 ### Các Loại Tấn Công Phát Hiện
-Bảng hoặc danh sách các loại tấn công với số lượng và phần trăm
+Danh sách các loại tấn công với số lượng và phần trăm
 
 ### MITRE ATT&CK Mapping
 Danh sách các techniques phát hiện
@@ -254,10 +254,10 @@ Danh sách các techniques phát hiện
 Top IP tấn công và đặc điểm
 
 ## Dữ Liệu Chi Tiết IP
-Bảng đơn giản giống màn hình thống kê với các cột: Địa Chỉ IP, Kỹ Thuật Tấn Công, Số Lần, Trạng Thái (AbuseIPDB), Mức Độ
+Tạo bảng markdown với các cột: Địa Chỉ IP | Kỹ Thuật Tấn Công | Số Lần | Trạng Thái (AbuseIPDB) | Mức Độ
 
 ## URI Bị Tấn Công Nhiều Nhất
-Bảng đơn giản với các cột: URI, Số Lần Tấn Công, Phương Thức
+Tạo bảng markdown với các cột: URI | Số Lần Tấn Công | Phương Thức
 
 ## Threat Intelligence
 ### Phân Tích IOC
@@ -267,9 +267,16 @@ Tóm tắt kết quả threat intelligence
 Mức độ rủi ro tổng thể và các IOC rủi ro cao
 
 ## Khuyến Nghị
+QUAN TRỌNG: Phần Khuyến Nghị này chỉ dùng TEXT và BULLET POINTS, KHÔNG tạo bảng
+
 ### Hành Động Ngay Lập Tức (< 1 giờ)
+Liệt kê dạng bullet points với mô tả chi tiết (KHÔNG dùng bảng)
+
 ### Hành Động Ngắn Hạn (< 1 tuần)
+Liệt kê dạng bullet points với mô tả chi tiết (KHÔNG dùng bảng)
+
 ### Hành Động Dài Hạn (< 1 tháng)
+Liệt kê dạng bullet points với mô tả chi tiết (KHÔNG dùng bảng)
 
 ## Phụ Lục
 - Vị Trí File CSV
@@ -282,6 +289,8 @@ QUAN TRỌNG:
 - Sử dụng thời gian cụ thể: {time_range}
 - Thời gian tạo báo cáo: {current_time}
 - Đảm bảo tất cả timestamp hiển thị đầy đủ ngày/tháng/năm và giờ:phút:giây
+- Tạo BẢNG MARKDOWN cho phần "Dữ Liệu Chi Tiết IP" và "URI Bị Tấn Công Nhiều Nhất"
+- Phần KHUYẾN NGHỊ chỉ dùng bullet points, KHÔNG tạo bảng
 
 Generate the report now (markdown only, no code blocks):
 """

@@ -5,7 +5,26 @@ import subprocess
 import sys
 import time
 import os
+import httpx
 from pathlib import Path
+
+def wait_for_service(url: str, service_name: str, timeout: int = 60):
+    """Wait for a service to be ready"""
+    print(f"⏳ Waiting for {service_name} to be ready...")
+    start_time = time.time()
+    
+    while time.time() - start_time < timeout:
+        try:
+            response = httpx.get(url, timeout=2.0)
+            if response.status_code == 200:
+                print(f"✅ {service_name} is ready!")
+                return True
+        except:
+            pass
+        time.sleep(1)
+    
+    print(f"⚠️  {service_name} did not start within {timeout}s")
+    return False
 
 def run_mcp_server():
     """Start Unified MCP Server"""
@@ -54,12 +73,18 @@ def main():
         # Start MCP server first
         mcp_server = run_mcp_server()
         processes.append(("MCP Server", mcp_server))
-        time.sleep(3)  # Wait for MCP server to start
+        
+        # Wait for MCP server to be ready
+        if not wait_for_service("http://127.0.0.1:8001/health", "MCP Server", timeout=60):
+            raise RuntimeError("MCP Server failed to start")
         
         # Start backend
         backend = run_backend()
         processes.append(("Backend", backend))
-        time.sleep(3)  # Wait for backend to start
+        
+        # Wait for backend to be ready
+        if not wait_for_service("http://127.0.0.1:8888/health", "Backend", timeout=30):
+            raise RuntimeError("Backend failed to start")
         
         # Start frontend
         frontend = run_frontend()

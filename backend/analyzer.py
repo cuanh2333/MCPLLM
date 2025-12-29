@@ -373,11 +373,18 @@ class AnalysisOrchestrator:
                 # Retrieve logs using cron-specific Splunk query (default: -5m to now)
                 logger.info("Calling splunk_query for cron (default: -5m to now)")
                 
+                # Use default Splunk settings from environment for cron
+                import os
+                index = os.getenv('SPLUNK_INDEX', 'hf')
+                sourcetype = os.getenv('SPLUNK_SOURCETYPE', 'win_log')
+                earliest_time = os.getenv('SPLUNK_EARLIEST_TIME', '-5m')
+                latest_time = os.getenv('SPLUNK_LATEST_TIME', 'now')
+                
                 results = await mcp_client.splunk_query(
-                    index=settings.splunk_index,
-                    sourcetype=settings.splunk_sourcetype,
-                    earliest_time=settings.splunk_earliest_time,
-                    latest_time=settings.splunk_latest_time
+                    index=index,
+                    sourcetype=sourcetype,
+                    earliest_time=earliest_time,
+                    latest_time=latest_time
                 )
                 
                 # Convert Splunk results to log lines

@@ -115,7 +115,7 @@ class RecommendAgent:
                 queryrag_agent = get_queryrag_agent()
                 rag_result = await queryrag_agent.query_knowledge(
                     user_query=query,
-                    category="incident_response"
+                    category=None  # Search all docs
                 )
                 
                 if rag_result and rag_result.get('answer'):
@@ -140,7 +140,7 @@ class RecommendAgent:
                 try:
                     rag_result = await queryrag_agent.query_knowledge(
                         user_query=query,
-                        category="incident_response"
+                        category=None  # Search all docs
                     )
                     
                     if rag_result and rag_result.get('answer'):

@@ -109,7 +109,7 @@ def load_log_file(filepath: str, max_lines: Optional[int] = None) -> List[str]:
         logger.error(f"Error loading log file {filepath}: {e}")
         raise
 
-def splunk_query(
+async def splunk_query(
     index: str = "main",
     sourcetype: str = "access_combined", 
     earliest_time: str = "-5m",
@@ -129,6 +129,9 @@ def splunk_query(
         if not splunk_password:
             raise ValueError("SPLUNK_PASSWORD environment variable is required")
         
+        logger.info(f"Connecting to Splunk: {splunk_host}:{splunk_port}")
+        logger.info(f"Query params: index={index}, sourcetype={sourcetype}, earliest={earliest_time}, latest={latest_time}")
+        
         # Connect to Splunk
         service = client.connect(
             host=splunk_host,
@@ -144,23 +147,37 @@ def splunk_query(
         else:
             query = f'search index="{index}" sourcetype="{sourcetype}"'
         
-        # Execute search
+        logger.info(f"Executing Splunk query: {query}")
+        
+        # Execute search with JSON output mode
         search_kwargs = {
             "earliest_time": earliest_time,
             "latest_time": latest_time,
-            "output_mode": "json"
+            "output_mode": "json",
+            "count": 0  # Return all results
         }
         
         job = service.jobs.create(query, **search_kwargs)
         
         # Wait for job completion
         while not job.is_done():
-            asyncio.sleep(0.1)
+            await asyncio.sleep(0.1)
         
-        # Get results
+        # Get results using ResultsReader for proper parsing
+        import splunklib.results as results_lib
+        
         results = []
-        for result in job.results():
-            results.append(dict(result))
+        # Use results() with output_mode='json' for proper JSON parsing
+        results_stream = job.results(output_mode='json', count=0)
+        reader = results_lib.JSONResultsReader(results_stream)
+        
+        for result in reader:
+            if isinstance(result, dict):
+                results.append(result)
+            elif isinstance(result, results_lib.Message):
+                # Skip messages
+                logger.debug(f"Splunk message: {result}")
+                continue
         
         logger.info(f"Splunk query returned {len(results)} results")
         return results
@@ -187,7 +204,7 @@ async def abuseipdb_check(ip_address: str) -> Dict[str, Any]:
         
         params = {
             'ipAddress': ip_address,
-            'maxAgeInDays': 90,
+            'maxAgeInDays': 30,  # Use 30 days for more accurate recent threat data
             'verbose': ''
         }
         
@@ -204,7 +221,7 @@ async def abuseipdb_check(ip_address: str) -> Dict[str, Any]:
                 result = data['data']
                 return {
                     'ip_address': result.get('ipAddress'),
-                    'abuse_confidence_score': result.get('abuseConfidencePercentage', 0),
+                    'abuse_confidence_score': result.get('abuseConfidenceScore', 0),
                     'total_reports': result.get('totalReports', 0),
                     'country_code': result.get('countryCode'),
                     'usage_type': result.get('usageType'),
@@ -601,7 +618,9 @@ async def load_log_file_endpoint(request: LogFileRequest):
 async def splunk_query_endpoint(request: SplunkQueryRequest):
     """Query Splunk for logs."""
     try:
-        results = splunk_query(
+        logger.info(f"Received Splunk query request: index={request.index}, sourcetype={request.sourcetype}, earliest={request.earliest_time}, latest={request.latest_time}")
+        
+        results = await splunk_query(
             index=request.index,
             sourcetype=request.sourcetype,
             earliest_time=request.earliest_time,
@@ -620,6 +639,7 @@ async def splunk_query_endpoint(request: SplunkQueryRequest):
             }
         }
     except Exception as e:
+        logger.error(f"Splunk query endpoint error: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=str(e))
 
 
